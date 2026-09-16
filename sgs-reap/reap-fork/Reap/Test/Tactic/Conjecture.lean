@@ -114,6 +114,11 @@ example (P Q : Prop) (h : P) (himp : P → Q) : Q := by
 /-- 空输入返回空数组。 -/
 example : (conjecturePriors #[] 10.0 1.0).size = 0 := rfl
 
+/-- 命题文本归一化：折叠空白，用于挡掉与目标同型的候选。 -/
+example : decide (normalizeProp "  P   →\n  Q " == "P → Q") := by native_decide
+example : decide (normalizeProp "P" == normalizeProp " P ") := by native_decide
+example : decide (normalizeProp "P" != normalizeProp "Q") := by native_decide
+
 /-- SGS 打分合成公式与上游一致：complexity ∈ {3,4} 直接判 0。 -/
 example : decide (ConjectureClient.subScoresToReview 5.0 1.0 0.0 == 7.0) := by native_decide
 example : decide (ConjectureClient.subScoresToReview 5.0 3.0 0.0 == 0.0) := by native_decide

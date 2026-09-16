@@ -49,6 +49,7 @@ logs/
 wandb/
 *.log
 *.jsonl
+sgs-reap/reap-fork/e2e_raw_tree.json
 
 # ---- 编辑器 / 系统 ----
 .vscode/

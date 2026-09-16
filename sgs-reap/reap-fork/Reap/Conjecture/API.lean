@@ -86,6 +86,29 @@ structure ConjectureClient where
 structure GuideClient where
   apiUrl : String
 
+/-- 连续失败多少次后判定服务不可用。 -/
+def serviceFailureThreshold : Nat := 3
+
+namespace ServiceHealth
+
+initialize consecutiveFailures : IO.Ref Nat ← IO.mkRef 0
+
+/-- 服务被认为不可用：跳过后续请求。
+
+实测在没有服务时，每个节点都要跑满 curl 重试，一次搜索会从十几秒劣化到两分钟以上。
+熔断把代价压到常数级别。注意这是进程级状态，恢复需要重启 Lean 进程——
+对研究原型足够，代价是服务"中途恢复"不会被立刻察觉。 -/
+def isDown : CoreM Bool := do
+  return (← consecutiveFailures.get) >= serviceFailureThreshold
+
+def recordFailure : CoreM Unit := do
+  consecutiveFailures.modify (· + 1)
+
+def recordSuccess : CoreM Unit := do
+  consecutiveFailures.set 0
+
+end ServiceHealth
+
 namespace ConjectureClient
 
 initialize cache :
@@ -101,6 +124,7 @@ def subScoresToReview (relevance complexity redundancy : Float) : Float :=
 /-- 查询猜想服务；任何失败都返回空数组。 -/
 def proposeConjectures (client : ConjectureClient) (goalState : String) (numSamples : Nat) :
     CoreM (Array ConjectureCandidate) := do
+  if ← ServiceHealth.isDown then return #[]
   let key := (goalState, numSamples)
   match (← cache.get).get? key with
   | some result => return result
@@ -109,8 +133,11 @@ def proposeConjectures (client : ConjectureClient) (goalState : String) (numSamp
     let result ←
       try
         let res : ConjectureResponse ← Requests.post client.apiUrl req
+        ServiceHealth.recordSuccess
         pure res.candidates
-      catch _ => pure #[]
+      catch _ =>
+        ServiceHealth.recordFailure
+        pure #[]
     if !result.isEmpty then
       cache.modify fun m => m.insert key result
     return result
@@ -126,6 +153,7 @@ initialize cache : IO.Ref (Std.HashMap String (Array Float)) ← IO.mkRef {}
 def scoreConjectures (client : GuideClient) (target : String)
     (candidates : Array ConjectureCandidate) : CoreM (Array Float) := do
   if candidates.isEmpty then return #[]
+  if ← ServiceHealth.isDown then return #[]
   let key := target ++ "|" ++ String.intercalate "|" (candidates.toList.map (·.type))
   match (← cache.get).get? key with
   | some scores => return scores
@@ -138,8 +166,11 @@ def scoreConjectures (client : GuideClient) (target : String)
     let res? ←
       try
         let res : GuideResponse ← Requests.post client.apiUrl req
+        ServiceHealth.recordSuccess
         pure (some res)
-      catch _ => pure none
+      catch _ =>
+        ServiceHealth.recordFailure
+        pure none
     if let some res := res? then
       for s in res.scores do
         for i in [:candidates.size] do
