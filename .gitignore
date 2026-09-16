@@ -1,6 +1,5 @@
 # ---- Lean / Lake ----
-.lake/build/
-.lake/packages/*/.git/
+.lake/
 *.olean
 *.ilean
 *.trace
@@ -10,7 +9,6 @@
 *.setup.json
 *.olean.private
 *.olean.server
-.lake/build/bin/
 
 # ---- Python ----
 __pycache__/
