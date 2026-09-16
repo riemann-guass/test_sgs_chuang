@@ -94,3 +94,27 @@ register_option reap.progressive_sampling_c : Nat :=
 register_option reap.progressive_sampling_alpha : Nat :=
   { defValue := 600
     descr := "MCTS progressive sampling alpha parameter, scaled by 1000." }
+
+register_option reap.conjecture_enabled : Bool :=
+  { defValue := false
+    descr := "Whether to add conjectured auxiliary lemmas to the action set." }
+
+register_option reap.conjecture_endpoint : String :=
+  { defValue := "<conjecture_endpoint>"
+    descr := "Endpoint for the conjecture service (POST /conjecture)." }
+
+register_option reap.guide_endpoint : String :=
+  { defValue := "<guide_endpoint>"
+    descr := "Endpoint for the guide/review service (POST /guide)." }
+
+register_option reap.conjecture_num_samples : Nat :=
+  { defValue := 3
+    descr := "Number of conjectured auxiliary lemmas requested per expansion." }
+
+register_option reap.conjecture_weight : Nat :=
+  { defValue := 10000
+    descr := "beta: weight applied to guide-derived log-priors, scaled by 1000." }
+
+register_option reap.conjecture_temperature : Nat :=
+  { defValue := 1000
+    descr := "T: softmax temperature over guide review scores, scaled by 1000." }

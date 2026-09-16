@@ -1,3 +1,5 @@
+import Reap.Conjecture.API
+import Reap.Tactic.Conjecture
 import Reap.Test.Tactic.MCTS
 
 open Lean Meta Elab Tactic
@@ -103,3 +105,70 @@ example (P Q : Prop) (h : P) (himp : P → Q) : Q := by
     guardProofScriptEquals nodes nodeIdx expected
     guardProofScriptChecks ctx expected
   exact himp h
+
+/-! ## 先验换算与契约解析的单元测试
+
+这些测试不依赖网络：先验换算是纯函数，契约解析直接用一段与假服务同格式的 JSON。
+-/
+
+/-- 空输入返回空数组。 -/
+example : (conjecturePriors #[] 10.0 1.0).size = 0 := rfl
+
+/-- SGS 打分合成公式与上游一致：complexity ∈ {3,4} 直接判 0。 -/
+example : decide (ConjectureClient.subScoresToReview 5.0 1.0 0.0 == 7.0) := by native_decide
+example : decide (ConjectureClient.subScoresToReview 5.0 3.0 0.0 == 0.0) := by native_decide
+example : decide (ConjectureClient.subScoresToReview 5.0 4.0 1.0 == 0.0) := by native_decide
+
+/-- review 越高，先验越大。 -/
+example :
+    decide ((conjecturePriors #[7.0, 4.0] 10.0 1.0)[0]! > (conjecturePriors #[7.0, 4.0] 10.0 1.0)[1]!) := by
+  native_decide
+
+/-- 分数相同时退化为均匀分布（先验相等）。 -/
+example :
+    decide ((conjecturePriors #[4.0, 4.0] 10.0 1.0)[0]! == (conjecturePriors #[4.0, 4.0] 10.0 1.0)[1]!) := by
+  native_decide
+
+/-- beta 越大，组内先验差距越大（量纲可控，供阶段 3 标定）。 -/
+example :
+    decide (Float.abs ((conjecturePriors #[7.0, 4.0] 20.0 1.0)[0]! -
+          (conjecturePriors #[7.0, 4.0] 20.0 1.0)[1]!) >
+        Float.abs ((conjecturePriors #[7.0, 4.0] 10.0 1.0)[0]! -
+          (conjecturePriors #[7.0, 4.0] 10.0 1.0)[1]!)) := by
+  native_decide
+
+/-- 温度越高，组内先验差距越小。 -/
+example :
+    decide (Float.abs ((conjecturePriors #[7.0, 4.0] 10.0 4.0)[0]! -
+          (conjecturePriors #[7.0, 4.0] 10.0 4.0)[1]!) <
+        Float.abs ((conjecturePriors #[7.0, 4.0] 10.0 1.0)[0]! -
+          (conjecturePriors #[7.0, 4.0] 10.0 1.0)[1]!)) := by
+  native_decide
+
+/-- 契约解析辅助：Json → 候选列表，失败返回 `none`（与客户端软失败语义一致）。 -/
+def parseCandidates (j : Json) : Option (Array ConjectureCandidate) :=
+  (fromJson? j : Except String ConjectureResponse).toOption.map (·.candidates)
+
+/-- 契约解析辅助：Json → 评分列表，失败返回 `none`。 -/
+def parseScores (j : Json) : Option (Array GuideScore) :=
+  (fromJson? j : Except String GuideResponse).toOption.map (·.scores)
+
+/-- 契约解析：与假服务同格式的响应能被正确读出，`meta` 缺失也可容忍。 -/
+example :
+    (parseCandidates (json% {
+      "candidates": [{"index": 0, "type": "True", "raw": "<mock>", "review": 7.0}],
+      "meta": {"backend": "mock:normal"}})).map (fun cs => cs.map (·.type)) = some #["True"] := by
+  native_decide
+
+example : (parseCandidates (json% {"candidates": []})).map (·.size) = some 0 := by
+  native_decide
+
+/-- 空对象（服务端省略 candidates）不应抛错，应退回空列表。 -/
+example : (parseCandidates (json% {})).map (·.size) = some 0 := by
+  native_decide
+
+example :
+    (parseScores (json% {"scores": [
+      {"index": 0, "relevance": 5.0, "redundancy": 0.0, "complexity": 1.0, "review": 7.0}]})).map
+      (fun ss => ss.size == 1 && ss[0]!.review == 7.0) = some true := by
+  native_decide
