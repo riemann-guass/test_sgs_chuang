@@ -1,43 +1,44 @@
 {
   "records": [
     {
-      "accepted": 3,
+      "accepted": 2,
       "candidates": [
-        "P → Q",
-        "P → (P → Q) → Q",
-        "(P → Q) → P → Q"
+        "∀ n : ℕ, 2 ∣ n * (n + 1)",
+        "∀ n : ℕ, Even (n * (n + 1))",
+        "∀ n : ℕ, n ^ 2 + n = n * (n + 1)"
       ],
       "case": "http_and_elaboration",
-      "goal": "P Q : Prop\nh : P\nhimp : P → Q\n⊢ Q",
+      "goal": "n : ℕ\n⊢ 2 ∣ n ^ 2 + n",
       "priors": [
-        -2.3954476622188463,
-        -22.395447662218846,
-        -22.395447662218846
+        -8.61994804058251,
+        -8.61994804058251,
+        -18.61994804058251
       ],
-      "rejected": [],
+      "rejected": [
+        "∀ n : ℕ, Even (n * (n + 1)) :: {\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `Even`\",\"endPos\":{\"column\":15,\"line\":2},\"fileName\":\"tests/ConjectureRealE2E.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean.unknownIdentifier._namedError\",\"pos\":{\"column\":11,\"line\":2},\"severity\":\"error\"}]}}"
+      ],
       "reviews": [
-        7,
-        5,
-        5
+        8,
+        8,
+        7
       ]
     },
     {
       "all_edges": [
-        "have sgs_aux_0 : P → Q := ?_",
-        "have sgs_aux_1 : P → (P → Q) → Q := ?_",
-        "have sgs_aux_2 : (P → Q) → P → Q := ?_"
+        "have sgs_aux_0 : ∀ n : ℕ, 2 ∣ n * (n + 1) := ?_",
+        "have sgs_aux_2 : ∀ n : ℕ, n ^ 2 + n = n * (n + 1) := ?_"
       ],
       "case": "mcts_edge",
-      "conjecture_edges": 3
+      "conjecture_edges": 2
     }
   ],
   "wall_clock": {
-    "value": 1,
-    "tactic_eval": 3,
-    "guide": 1,
     "conjecture": 1,
-    "tactic_gen": 1,
+    "tactic_eval_pre": 3,
+    "guide": 1,
+    "value": 1,
     "premise_select": 1,
-    "tactic_eval_pre": 3
+    "tactic_eval": 3,
+    "tactic_gen": 1
   }
 }

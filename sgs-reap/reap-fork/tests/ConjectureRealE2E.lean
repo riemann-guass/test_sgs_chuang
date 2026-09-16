@@ -10,10 +10,10 @@
 
 1. 载体定理的结论用 `sorry` 收尾：本文件要的是"真实的证明上下文"，而所有断言都在
    `run_tac` 里于 elaboration 期执行，载体自身的证明与本文件所测的东西无关。
-2. 目标只使用 `Prop` 级表述。原因是 reap 的模块系统（`experimental.module = true` +
-   `public meta import`）不会把 `Init` 的数据类型实例传给下游文件：在只 import reap 的文件里，
-   连 `n * n`（`HMul ℕ ℕ ℕ`）都无法 elaborate。要用 ℕ/ℝ 级目标评测，必须建立 Mathlib 工程
-   （阶段 3/4 的前置条件）。
+2. 需要 `notation "ℕ" => Nat`。本项目（reap 的 `public meta import` + 无 Mathlib）环境里
+   没有 `ℕ` 这个 unicode 记法；缺少它时 Lean 的 `autoImplicit` 会把 `ℕ` 当成隐式绑定变量，
+   报出极具误导性的 `failed to synthesize HMul ℕ ℕ ?m.4`。ASCII 的 `Nat` 一直可用。
+   这一行同时让模型输出的 `ℕ` 记法能被解析——否则候选会因为"记法缺失"而不是"数学错误"被拒。
 -/
 import Reap.Test.Tactic.Conjecture
 
@@ -30,6 +30,9 @@ set_option reap.conjecture_endpoint "http://127.0.0.1:8770/conjecture"
 set_option reap.guide_endpoint "http://127.0.0.1:8770/guide"
 set_option reap.conjecture_num_samples 3
 set_option reap.wall_clock_log_path "real_e2e_wall_clock.jsonl"
+
+-- 让模型惯用的 ℕ 记法在本文件中可用（见文件头说明 2）
+notation "ℕ" => Nat
 
 /-- 测试结果落盘（JSONL），供 runner 汇总。 -/
 def appendResult (obj : Json) : MetaM Unit := do
@@ -53,7 +56,7 @@ def checkCandidates (candidates : Array ConjectureCandidate) : TacticM (Nat × A
   return (accepted, rejected)
 
 /-- 用例 A：真实服务的候选可以被 Lean 接受（HTTP + 解析 + elaboration 全链路）。 -/
-example (P Q : Prop) (h : P) (himp : P → Q) : Q := by
+example (n : ℕ) : 2 ∣ n ^ 2 + n := by
   run_tac do
     let goals ← getUnsolvedGoals
     let ppState := toString (← TacticGenerator.Meta.ppProofState goals)
@@ -82,7 +85,7 @@ example (P Q : Prop) (h : P) (himp : P → Q) : Q := by
   sorry
 
 /-- 用例 B：真实候选进入 MCTS 动作集，成为树边（`maxSteps=1` 只展开根节点以控制 API 调用数）。 -/
-example (P Q : Prop) (h : P) (himp : P → Q) : Q := by
+example (n : ℕ) : 2 ∣ n ^ 2 + n := by
   run_tac do
     let saved ← saveState
     let result ← runMCTS generatePolicyValueWithConjecture (maxNodes := 8) (maxSteps := 1)

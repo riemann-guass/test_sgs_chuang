@@ -92,29 +92,66 @@
 
 ### 本轮发现并修掉的问题
 
-**1. reap 的模块系统不向下游传递 `Init` 的数据类型实例。**
+**1. `ℕ` 记法缺失被 autoImplicit 伪装成"实例缺失"。（一次误判的完整记录）**
 
-只 `import` reap 的文件里，`n * n`（`HMul ℕ ℕ ℕ`）、`n ^ 2`、甚至 `0`、`1`
-（`OfNat ℕ`）都无法 elaborate。做了 5 组对照后确认：问题只出现在 import 了 reap 模块的文件中，
-无 import 或只 `import Lean` 的文件一切正常；显式补 `import Init.Data.Nat.Basic` 或在文件顶部加
-`module` 都不能恢复。
+首轮失败信息是 `failed to synthesize instance: HMul ℕ ℕ ?m.4` / `OfNat ℕ 0`，
+看起来像"reap 的模块系统没有把 `Init` 的实例传给下游文件"。我据此做了 5 组对照
+（换 import 顺序、补 `import Init.Data.Nat.Basic`、加 `module` 关键字……），全部无效。
 
-因此本阶段的目标改用 **Prop 级表述**，并在文件头写清原因。这一条的直接后果是：
-**要用 ℕ/ℝ 级目标做 M1 标定，必须先建立 Mathlib 工程**——它同时是阶段 4 的前置条件。
+真正的原因是**记法**：本项目（reap 的 `public meta import` + 未引入 Mathlib）环境里
+没有 `ℕ` 这个 unicode 记法。缺少它时 Lean 的 `autoImplicit`（默认开启）把 `ℕ` 当成
+**隐式绑定变量**，于是 `n : ℕ` 里的 `ℕ` 是一个未解析的元变量，
+`n * n` 自然报 `HMul ℕ ℕ ?m.4`——错误信息里的 `ℕ` 是那个元变量，不是 `Nat`。
+
+决定性对照（同一环境下只改一处）：
+
+| 文件内容 | 结果 |
+|---|---|
+| `import Reap.Tactic.Conjecture` + `example (n : Nat) : n * n = n * n := rfl` | 通过 |
+| 同上但把 `Nat` 换成 `ℕ` | `HMul ℕ ℕ ?m.4` 失败 |
+| 只有 `example (n : ℕ) : n * n = n * n := rfl`（不 import 任何东西） | 同样失败 |
+| 加一行 `notation "ℕ" => Nat` 后 | 通过，`^` / `%` / `∣` / `∀` 全部可用 |
+
+结论：`Nat` 级别的算术记法一直是可用的，**根本不需要 Mathlib**；只需在测试文件里补一行
+`notation "ℕ" => Nat`。这一行还有一个重要作用：让模型输出里的 `ℕ` 能被解析，
+否则候选会因为"记法缺失"而不是"数学错误"被拒，利用率指标会被系统性拉低。
+
+（教训：`autoImplicit` 会把"未知标识符"变成"看似合理的实例错误"，诊断时应先做
+"把 unicode 换成 ASCII"这类最小对照。）
 
 **2. 一个反直觉的观察：利用率 100% 不等于有用。**
 
-在 Prop 级目标上，模型给出的三条候选都是重言式（`P → Q`、`P → (P → Q) → Q`、
-`(P → Q) → P → Q`），全部可 elaborate；其中 `P → Q` 其实就是上下文里已有的假设 `himp`。
-Guide 却给了它最高分 7。这说明 **M1 不能只看利用率**，还必须同时看候选的"非平凡性"
-（是否只是重述已有假设或目标），否则指标会被重言式刷满。
+在 Prop 级目标 `P Q : Prop, h : P, himp : P → Q ⊢ Q` 上，模型给出的三条候选都是重言式
+（`P → Q`、`P → (P → Q) → Q`、`(P → Q) → P → Q`），全部可 elaborate；其中 `P → Q`
+其实就是上下文里已有的假设 `himp`，Guide 却给了最高分 7。这说明 **M1 不能只看利用率**，
+还必须同时看候选的"非平凡性"（是否只是重述已有假设或目标），否则指标会被重言式刷满。
+
+### 修正后的 ℕ 级实测
+
+补上 `notation "ℕ" => Nat` 后，用 ℕ 级目标 `2 ∣ n ^ 2 + n` 重跑：
+
+```
+[real-e2e] 候选 3 条，Lean 接受 2 条（利用率 67%）
+           review=8    ∀ n : ℕ, 2 ∣ n * (n + 1)
+           review=8    ∀ n : ℕ, Even (n * (n + 1))
+           review=7    ∀ n : ℕ, n ^ 2 + n = n * (n + 1)
+           拒绝: Even ... :: Unknown identifier `Even`
+[real-e2e] MCTS 根节点获得 2 条猜想边
+```
+
+两点值得记入 M1 的方法论：
+
+* 被拒的那条**不是数学错误**，而是 `Even` 属于 Mathlib、本项目未引入。因此 M1 统计利用率时
+  必须把拒绝原因分类：`记法/解析失败`、`未知标识符（缺库）`、`类型错误`。
+  只有第三类才是模型真正的数学问题。
+* 三条候选的 Guide 评分是 8 / 8 / 7，区分度依然偏窄（与前面方差实验的结论一致）。
 
 ## 下一步
 
 阶段 2 剩余工作（闸门 M1）：在 20 道题上标定候选利用率 / 延迟 / token。
-由于上面第 1 条，标定需要先能跑 ℕ/ℝ 级目标，因此下一步是：
+ℕ 级目标已可跑，无需 Mathlib，因此下一步是：
 
-1. 建立 Mathlib 工程（`require mathlib` + `lake exe cache get`），作为 reap fork 之外的独立测试包；
-2. 从 `SGS/data/D_3k_prover_dataset.json` 抽 20 道题，跑 `/conjecture` + elaboration 检查，
-   统计利用率、p50/p95 延迟、每类调用 token；
-3. 同时记录"非平凡率"（候选不等于目标、也不等于任一已有假设）。
+1. 写 `reap-fork/tests/Calibrate.lean`：20 个含真实上下文的 ℕ/Prop 级目标，逐个
+   跑 `/conjecture` + elaboration 检查，结果写入 JSONL；
+2. 统计：候选利用率、**拒绝原因分类**、非平凡率、p50/p95 延迟、每类调用 token；
+3. ℝ 级与 Mathlib 依赖的目标留到阶段 4（需要先建 Mathlib 工程，届时同时作为评测基准）。
