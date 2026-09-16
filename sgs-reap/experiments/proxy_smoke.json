@@ -1,0 +1,96 @@
+{
+  "goal_state": "n : ℕ\n⊢ 2 ∣ n ^ 2 + n",
+  "health": {
+    "status": "ok",
+    "backend": "deepseek",
+    "model": "deepseek-flash",
+    "version": "v1"
+  },
+  "conjecture": {
+    "candidates": [
+      {
+        "index": 0,
+        "type": "∀ m : ℕ, 2 ∣ m * (m + 1)",
+        "raw": "```lean4\n∀ m : ℕ, 2 ∣ m * (m + 1)\n```\n\n```lean4\n∀ m : ℕ, m ^ 2 + m = m * (m + 1)\n```\n\n```lean4\n∀ m : ℕ, m % 2 = 0 ∨ m % 2 = 1\n```",
+        "review": 0.0
+      },
+      {
+        "index": 1,
+        "type": "∀ m : ℕ, m ^ 2 + m = m * (m + 1)",
+        "raw": "```lean4\n∀ m : ℕ, 2 ∣ m * (m + 1)\n```\n\n```lean4\n∀ m : ℕ, m ^ 2 + m = m * (m + 1)\n```\n\n```lean4\n∀ m : ℕ, m % 2 = 0 ∨ m % 2 = 1\n```",
+        "review": 0.0
+      },
+      {
+        "index": 2,
+        "type": "∀ m : ℕ, m % 2 = 0 ∨ m % 2 = 1",
+        "raw": "```lean4\n∀ m : ℕ, 2 ∣ m * (m + 1)\n```\n\n```lean4\n∀ m : ℕ, m ^ 2 + m = m * (m + 1)\n```\n\n```lean4\n∀ m : ℕ, m % 2 = 0 ∨ m % 2 = 1\n```",
+        "review": 0.0
+      }
+    ],
+    "meta": {
+      "backend": "deepseek",
+      "model": "deepseek-flash",
+      "thinking": false,
+      "latency_ms": 1146.5,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 252,
+        "completion_tokens": 75,
+        "total_tokens": 327,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 252
+      },
+      "cache_hit": false,
+      "parsed_propositions": 3
+    }
+  },
+  "guide": {
+    "scores": [
+      {
+        "index": 0,
+        "relevance": 5.0,
+        "redundancy": 0.0,
+        "complexity": 0.0,
+        "review": 8.0
+      },
+      {
+        "index": 1,
+        "relevance": 5.0,
+        "redundancy": 0.0,
+        "complexity": 0.0,
+        "review": 8.0
+      },
+      {
+        "index": 2,
+        "relevance": 4.0,
+        "redundancy": 0.0,
+        "complexity": 2.0,
+        "review": 5.0
+      }
+    ],
+    "meta": {
+      "backend": "deepseek",
+      "model": "deepseek-flash",
+      "latency_ms": 9792.2,
+      "cache_hits": 0,
+      "parse_failures": 0,
+      "usage": {
+        "prompt_tokens": 2442,
+        "completion_tokens": 1619
+      }
+    }
+  },
+  "stats": {
+    "model": "deepseek-flash",
+    "calls": 4,
+    "cache_hits": 0,
+    "prompt_tokens": 2694,
+    "completion_tokens": 1694,
+    "reasoning_tokens": 0,
+    "total_latency_ms": 10938.7,
+    "avg_latency_ms": 2734.7
+  }
+}
