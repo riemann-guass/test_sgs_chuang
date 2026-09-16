@@ -1,0 +1,43 @@
+{
+  "records": [
+    {
+      "accepted": 3,
+      "candidates": [
+        "P → Q",
+        "P → (P → Q) → Q",
+        "(P → Q) → P → Q"
+      ],
+      "case": "http_and_elaboration",
+      "goal": "P Q : Prop\nh : P\nhimp : P → Q\n⊢ Q",
+      "priors": [
+        -2.3954476622188463,
+        -22.395447662218846,
+        -22.395447662218846
+      ],
+      "rejected": [],
+      "reviews": [
+        7,
+        5,
+        5
+      ]
+    },
+    {
+      "all_edges": [
+        "have sgs_aux_0 : P → Q := ?_",
+        "have sgs_aux_1 : P → (P → Q) → Q := ?_",
+        "have sgs_aux_2 : (P → Q) → P → Q := ?_"
+      ],
+      "case": "mcts_edge",
+      "conjecture_edges": 3
+    }
+  ],
+  "wall_clock": {
+    "value": 1,
+    "tactic_eval": 3,
+    "guide": 1,
+    "conjecture": 1,
+    "tactic_gen": 1,
+    "premise_select": 1,
+    "tactic_eval_pre": 3
+  }
+}
