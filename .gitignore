@@ -1,0 +1,60 @@
+# ---- Lean / Lake ----
+.lake/build/
+.lake/packages/*/.git/
+*.olean
+*.ilean
+*.trace
+*.c
+*.o
+*.hash
+*.setup.json
+*.olean.private
+*.olean.server
+.lake/build/bin/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+ipython_config.py
+
+# ---- 环境与密钥 ----
+.env
+.env.*
+!.env.example
+*.key
+credentials.json
+
+# ---- 模型与大数据 ----
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+checkpoints/
+models/
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+
+# ---- 实验产物 ----
+runs/
+outputs/
+logs/
+wandb/
+*.log
+*.jsonl
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
