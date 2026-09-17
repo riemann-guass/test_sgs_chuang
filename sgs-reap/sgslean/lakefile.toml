@@ -16,3 +16,13 @@ name = "SgsLean"
 
 [[lean_lib]]
 name = "SgsLean.Test"
+
+# python 侧唯一入口（协议见 docs/implementation-blueprint.md）：
+#   lake build sgslean-server && .lake/build/bin/sgslean-server.exe < requests.jsonl
+# supportInterpreter：本进程内嵌 Lean frontend 跑 elaboration，解释器必需的
+# Init/Std/Lean 原生实现要一起链进来，否则报 `Could not find native implementation
+# of external declaration 'UInt64.ofNatLT'`。
+[[lean_exe]]
+name = "sgslean-server"
+root = "SgsLean.Server"
+supportInterpreter = true

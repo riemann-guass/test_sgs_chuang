@@ -141,14 +141,22 @@ P0/P1.1 已完成；每个阶段独立冻结自己的接口，任一闸门不过
 
 ## `SgsLean/Server.lean` 协议 v1 草案（待评审后实现）
 
-**传输**：stdin / stdout 各一行一条 JSON（JSONL），UTF-8；stderr 留给日志，stdout 只放响应。
-每条请求与响应都带 `id`，Python 侧按 `id` 配对（不依赖顺序）。
+**传输**：stdin / stdout 各一行一条 JSON（JSONL），UTF-8；stderr 留给诊断，stdout 只放响应
+（Lean frontend 默认把消息打到 stdout，服务端在跑 frontend 期间把 stdout 临时换成 stderr，
+见 `docs/phase4-log.md` 现象 2）。每条请求与响应都带 `id`，Python 侧按 `id` 配对（不依赖顺序）。
+
+**批处理**：请求攒批，写一条 `{"id":"...","cmd":"flush"}` 取回本批响应，或在 EOF 时自动 flush。
+批内响应与请求 1:1 对应；`flush` 响应额外回报 `flushed`（条数）与 `frontend_ms`（本次
+frontend 的真实耗时，P1.3 成本核算用）。
+
+**只有 JSON 对象才算请求**：非 JSON / 非对象行一律**立刻**回一条 `{"id": null, "ok": false,
+"error": {"code": "bad_request", ...}}`，不进批（非法行取不到 `id`，只能回 `null`）。
 
 **请求 / 响应**
 
 ```json
 {"id": "r1", "cmd": "ping"}
-{"id": "r1", "ok": true, "result": {"status": "ok", "version": "v1", "lean": "4.28.0-rc1", "mathlib": false}}
+{"id": "r1", "ok": true, "result": {"status": "ok", "version": "v1", "importedModules": 2072, "mathlib": false}}
 
 {"id": "r2", "cmd": "check", "stmt": "∀ (n : Nat), n + 0 = n"}
 {"id": "r2", "ok": true, "result": {"ok": true, "reason": "ok", "isProp": true, "elaboratedType": "∀ (n : Nat), n + 0 = n"}}
@@ -163,7 +171,10 @@ P0/P1.1 已完成；每个阶段独立冻结自己的接口，任一闸门不过
 **错误**（协议层失败，与"判定为假"区分开）：
 
 ```json
-{"id": "r5", "ok": false, "error": {"code": "bad_request", "message": "unknown cmd: solve"}}
+{"id": "rx", "cmd": "flush"}
+{"id": "rx", "ok": true, "result": {"flushed": 4, "frontend_ms": 18862}}
+
+{"id": "r5", "ok": false, "error": {"code": "bad_request", "message": "unknown cmd: \"solve\""}}
 ```
 
 码表沿用 `docs/api-contract.md`：`bad_request` / `invalid_params` / `internal_error`
@@ -173,6 +184,12 @@ P0/P1.1 已完成；每个阶段独立冻结自己的接口，任一闸门不过
 调用方负责把局部上下文**闭包**成一条自足命题（与 `/conjecture` 契约里 `type` 的口径一致）。
 局部上下文透传（goal state 直传）留到 v2：等 P2 的轨迹生成落地、确认确实需要之后再加。
 
-**实现路线（P1.2 验证后再定稿）**：常驻进程读一行处理一行；单条请求在一个受控环境里
-elaborate 一段生成的 `example … := by run_tac …` 片段，复用 P1.1 的 `Gate` / `Verify`。
-若单条延迟不可接受，退回"批量生成临时文件 + `lake env lean`"模式。
+**实现（P1.2 离线切片已完成，见 `docs/phase4-log.md`）**：
+
+| 实现要点 | 说明 |
+|---|---|
+| 入口 | `lake exe sgslean-server`（`[[lean_exe]]` + `supportInterpreter = true`） |
+| 驱动方式 | 主循环 + `Lean.Elab.runFrontend` 跑**内容固定**的片段（`import` + 一个 `example`），片段里 `run_tac` 调 `runJobs` |
+| 数据通道 | 进程内 `IO.Ref`（作业槽 / 结果槽），不经文件、不做字符串拼接 |
+| 搜索路径 | 启动时 `Lean.initSearchPath (← Lean.findSysroot)`（standalone exe 默认搜索路径为空） |
+| 实测成本 | 一次 frontend（2072 个模块 + 13 条判定）≈ 18 s；必须批量喂请求 |
