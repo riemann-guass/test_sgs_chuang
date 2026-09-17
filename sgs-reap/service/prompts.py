@@ -193,3 +193,52 @@ def sub_scores_to_review(relevance: float, complexity: float, redundancy: float)
     if complexity in (3.0, 4.0):
         return 0.0
     return max(0.0, relevance + (2.0 - complexity) + (1.0 - redundancy))
+
+
+# ── /solve：整篇证明生成（P1.2 新增）────────────────────────────────────────
+# 与 /conjecture 的分工：conjecture 出的是**命题**（`have`-ready），solve 出的是**证明脚本**。
+# 两者都只做文本生成与轻量规范化，"证明对不对"一律由 Lean 侧（SgsLean/Server.lean）判定。
+
+
+def solve_prompt(statement: str, num_samples: int) -> str:
+    """整篇证明的提示词：输出 tactic 脚本，不输出定理声明。
+
+    约束刻意写得死，因为 Lean 侧的 `Verify.verify` 会把证明脚本包进 `exact by ...` 后跑
+    reap 的重放 + kernel 终检：多一个 `theorem` 头、多一个 `sorry`、少一步都会直接判负。
+    """
+    return (
+        "You are a Lean 4 theorem prover. Prove the following statement:\n\n"
+        "```lean4\n"
+        f"{statement.strip()}\n"
+        "```\n\n"
+        f"Give {num_samples} DIFFERENT proof(s) of it. Each proof must satisfy ALL of:\n"
+        "1. It is a TACTIC SCRIPT — the body of `by ...` only. No `theorem`/`lemma`/`example` "
+        "keyword, no statement, no `by` keyword.\n"
+        "2. No `sorry`, no `admit`, no `?_` placeholder.\n"
+        "3. It must CLOSE the goal: no subgoal may remain after it runs.\n"
+        "4. Use `intro` for `∀`/`→` binders; separate tactics with newlines; use `·` bullets "
+        "if one tactic creates several goals.\n"
+        "5. Only names available in the current environment may be used. If unsure, prefer "
+        "elementary tactics (`intro`, `exact`, `rfl`, `simp`, `rw`, `constructor`, `cases`, "
+        "`induction`) over guessed lemma names.\n\n"
+        "Output each proof in its own ```lean4 code block, one proof per block, "
+        "and put nothing else inside the block."
+    )
+
+
+def extract_proofs(generation: str) -> list[str]:
+    """抽取所有 ```lean4 代码块作为 tactic 脚本。
+
+    只做两件机械的规范化：去掉可能被一起贴进来的 `by` 前缀、去掉首尾空白。
+    **不做** sorry/占位符过滤——按 `docs/api-contract.md` 的分工，判定真伪是 Lean 的职责，
+    在这里过滤会让 solve_rate 统计失去意义（负例被偷偷扔掉，指标看起来变好）。
+    """
+    proofs: list[str] = []
+    for block in re.findall(r"```(?:lean4|lean)\s*(.*?)```", generation, flags=re.DOTALL):
+        text = block.strip()
+        if text.startswith("by"):
+            text = text[2:].lstrip()
+        if not text:
+            continue
+        proofs.append(text)
+    return proofs

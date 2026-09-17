@@ -37,21 +37,22 @@ P0/P1.1 已完成；每个阶段独立冻结自己的接口，任一闸门不过
 | `sgslean/SgsLean/{Test}.lean`、`Test/{Gate,Verify}.lean` | 35 个离线判定点（含三类必测负例） | ✅ |
 | `sgslean/README.md`、`docs/phase3-log.md` | 用法与阶段日志（含 `sorry` 穿过 `checkTacticSyntax` 的实测） | ✅ |
 
-### P1.2（待做：**需要联网下载 Mathlib + 长时间编译，动手前先问**）
+### P1.2（离线部分已完成；联网部分待做）
 
-| 文件 | 作用 |
-|---|---|
-| `sgslean/lakefile.toml`（改）、`lean-toolchain`、`lake-manifest.json` | 加入并锁定 Mathlib 版本；reap 仍排在 Mathlib 之前 |
-| `docs/upstream.md`（改） | 补 Mathlib 版本锁定行 |
-| `sgslean/SgsLean/Server.lean` | **自写 stdio JSON 服务**（协议 v1 见下），是 Python 侧唯一入口 |
-| `sgslean/SgsLean/Trace.lean` | 轨迹记录最小版：statement → k 次采样 → Verify → JSONL（分层标记留到 P2 完整化） |
-| `service/prompts.py`（改） | 新增 `/solve` 提示词（整篇证明，只输出 proof body，不输出 `theorem` 头） |
-| `service/proxy.py`（改） | 新增 `POST /solve`；`/guide` 保留 |
-| `service/mock_server.py`（改） | 同步实现 `/solve`，保证离线可测 |
-| `tests/run_server_smoke.py` | 离线：假服务 + `Server.lean` 往返（JSONL 进 JSONL 出） |
-| `tests/run_solve_e2e.py` | 真实模型：`/solve` → `Server.lean` 验证 → 轨迹落盘 |
-| `data/workload.jsonl`、`data/heldout.jsonl` | 工作负载 W 与 held-out 划分（初版） |
-| `docs/phase4-log.md` | 本阶段日志 |
+| 文件 | 作用 | 状态 |
+|---|---|---|
+| `sgslean/SgsLean/Server.lean` | stdio JSON 服务（协议 v1，见下），Python 侧唯一入口 | ✅ |
+| `service/prompts.py`（改） | `/solve` 提示词（只输出 tactic 脚本）与 `extract_proofs` | ✅ |
+| `service/proxy.py`（改） | `POST /solve`（`SOLVE_TEMPERATURE` 默认 0.6）；`/guide` 保留 | ✅ |
+| `service/mock_server.py`（改） | `POST /solve`：确定性"解题器"（答案表 + 失败诱饵） | ✅ |
+| `data/workload.jsonl`、`data/heldout.jsonl`、`data/README.md` | 工作负载 W 与 held-out 划分（初版，闭式语句） | ✅ |
+| `tests/run_server_smoke.py` | 协议纯度 + 判定语义 + 两种 flush 路径 | ✅ |
+| `tests/run_solve_mock.py` | 离线 `statement → k 证明 → 验证 → 轨迹落盘` | ✅ |
+| `docs/phase4-log.md`、`docs/phase5-log.md` | 阶段日志 | ✅ |
+| `sgslean/lakefile.toml`（改）、`lean-toolchain`、`lake-manifest.json` | 加入并锁定 Mathlib 版本；reap 仍排在 Mathlib 之前 | ⬜ 需联网 |
+| `docs/upstream.md`（改） | 补 Mathlib 版本锁定行 | ⬜ 需联网 |
+| `sgslean/SgsLean/Trace.lean` | Lean 侧轨迹记录最小版（P2 展开为子目标签名与分层统计） | ⬜ |
+| `tests/run_solve_e2e.py` | 真实模型版：`/solve` → `Server.lean` 验证 → 轨迹落盘 | ⬜ 要花 API 费用 |
 
 ### P1.3（G1 闸门）
 

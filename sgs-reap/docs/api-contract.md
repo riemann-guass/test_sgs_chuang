@@ -2,6 +2,10 @@
 
 Lean 侧与 Python 服务层之间只有这两个端点。契约冻结后，两侧可以独立开发与测试。
 
+> **v1.1（P1.2 追加）**：新增 `POST /solve`（整篇证明生成）。`/guide` **保留不动**——
+> 它是 H2 的对照组（见 `docs/proposal.md`）；`/conjecture` 的字段与语义未变。
+> `POST /solve` 见文末。
+
 基址默认 `http://127.0.0.1:8765`，Lean 侧通过 `reap.conjecture_endpoint` / `reap.guide_endpoint` 配置。
 
 ## 通用约定
@@ -109,3 +113,57 @@ prior_i = beta * ln(p_i)                 # beta 默认 10
 ```
 
 `beta` 与 `T` 暴露为 `reap.conjecture_weight` / `reap.conjecture_temperature`，其标定方法在阶段 3 用 `reap.raw_tree_path` 导出的 policy logprob 分布完成：先测出 policy prior 的典型尺度，再让 `beta * ln(p)` 落在同一量级。
+
+## `POST /solve`（v1.1 新增）
+
+`/conjecture` 出的是**命题**（`have`-ready），`/solve` 出的是**证明脚本**。两者都只做文本生成与
+轻量规范化，"对不对"一律由 Lean 侧判定——solve 产出的每篇证明都要经 `SgsLean/Server.lean`
+的 `verify` 走 reap 的重放 + kernel 终检，成功才算解出。
+
+请求：
+
+```json
+{
+  "statement": "∀ (n : Nat), n + 0 = n",
+  "num_samples": 4,
+  "request_id": "3f1c…"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `statement` | string | 是 | 要证的语句；**闭式**（只引用全局常量，或用 `∀`/`→` 自己引入变量） |
+| `num_samples` | int | 否 | 默认 4，范围 1–8 |
+| `request_id` | string | 否 | 追踪用，原样回传 |
+
+响应：
+
+```json
+{
+  "proofs": [
+    {"index": 0, "proof": "intro n\nrfl", "raw": "<模型原始输出>"}
+  ],
+  "meta": {"backend": "mock", "model": "mock-1", "latency_ms": 3, "cache_hit": false,
+           "parsed_proofs": 3}
+}
+```
+
+**`proof` 的语义**：它是 `by` 的 **body**（tactic 脚本），不带 `theorem`/`lemma`/`example` 头、
+不带 `by` 关键字。Lean 侧会把它包成 `exact by\n  <缩进后的 proof>` 再验证，因此：
+
+* 多步证明用换行分隔；`·` bullet 的缩进由 Lean 侧统一处理；
+* `sorry` / `admit` / `?_` 一律判负（分别对应 `mvar_or_sorry` 与 `unclosed_goals`），
+  **服务端不做过滤**——过滤会让 `solve_rate` 失去意义；
+* 解析不出证明时返回 `{"proofs": []}`，不返回错误（与 `/conjecture` 的软失败口径一致）。
+
+**采样与成本**
+
+| 环境变量 | 默认 | 说明 |
+|---|---|---|
+| `SOLVE_MAX_TOKENS` | 16384 | 单次调用输出预算（thinking 关闭时 16k 绰绰有余） |
+| `SOLVE_TEMPERATURE` | 0.6 | solve 要的是**多样性**（`solve_rate` = k 次采样成功几次），取值由闸门 G1 标定 |
+
+**判定码**：由 `SgsLean/Server.lean` 的 `verify` 返回，沿用 `SgsLean.classifyError` 的码表
+（`ok` / `not_a_prop` / `unclosed_goals` / `mvar_or_sorry` / `type_error` / `unknown_identifier` /
+`parse_error` / `forbidden_tactic` / `timeout` / `exception` / `unassigned_goal` /
+`final_check_failed`）。客户端统计 `solve_rate` 时**只看 `ok`**。

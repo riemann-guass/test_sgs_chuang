@@ -30,6 +30,31 @@ DEFAULT_RELEVANT = ["True"]
 NON_ELABORATING = "NotARealType"
 UNPARSABLE = "∀ (n : ℕ), n = "
 
+# ── /solve 用：已知的"正确答案"表与失败诱饵 ──────────────────────────────────
+# 目的：让离线链路的 solve_rate 呈现**真实分布**（既不恒 0 也不恒 1），
+# 从而能验证"生成 → 验证 → 轨迹落盘"这条链路真的在传递判定结果。
+# 表里的每条证明都在 v4.28.0-rc1 + reap 环境下实测通过（见 docs/phase5-log.md）。
+MOCK_SOLUTIONS: dict[str, str] = {
+    "∀ (n : Nat), n + 0 = n": "intro n\nrfl",
+    "∀ (n : Nat), n * 0 = 0": "intro n\nrfl",
+    "∀ (n : Nat), n + 1 = n + 1": "intro n\nrfl",
+    "∀ (n : Nat), (n + 1) * 0 = 0": "intro n\nrfl",
+    "∀ (a b : Nat), a + b = b + a": "intro a b\nexact Nat.add_comm a b",
+    "∀ (P : Prop), P → P": "intro P h\nexact h",
+    "True": "trivial",
+    "1 = 1": "rfl",
+}
+
+# 两条诱饵分别命中 Lean 侧的两种判定码：
+#   `exact ?_`  → unclosed_goals（残留占位符）
+#   `sorry`     → mvar_or_sorry（赋值含 sorryAx）
+MOCK_DECOYS = ["exact ?_", "sorry"]
+
+
+def normalize_statement(statement: str) -> str:
+    """语句归一化：折叠空白。表是按文本匹配的，模型/JSON 往返的空格差异要抹平。"""
+    return " ".join(statement.split())
+
 
 def sub_scores_to_review(relevance: float, complexity: float, redundancy: float) -> float:
     """SGS 原式：sgs/models/guide/llm_judge_guide.py"""
@@ -108,6 +133,35 @@ class MockState:
         }
         return scores, meta
 
+    def solve(self, req: dict) -> tuple[list[dict], dict]:
+        """确定性"解题器"：表里命中就给一条正确证明，再补失败诱饵凑够 num_samples。"""
+        statement = normalize_statement(str(req.get("statement", "")))
+        n = max(1, min(8, int(req.get("num_samples", 4) or 4)))
+        start = time.perf_counter()
+
+        if self.mode == "empty":
+            pool: list[str] = []
+        else:
+            pool = []
+            if statement in MOCK_SOLUTIONS:
+                pool.append(MOCK_SOLUTIONS[statement])
+            pool.extend(MOCK_DECOYS)
+            if self.mode == "noisy":
+                pool.insert(0, "this is not a tactic")
+
+        proofs = [
+            {"index": i, "proof": proof, "raw": f"<mock>{proof}</mock>"}
+            for i, proof in enumerate(pool[:n])
+        ]
+        meta = {
+            "backend": f"mock:{self.mode}",
+            "model": "mock-1",
+            "latency_ms": round((time.perf_counter() - start) * 1000, 3),
+            "cache_hit": False,
+            "known_statement": statement in MOCK_SOLUTIONS,
+        }
+        return proofs, meta
+
     @staticmethod
     def cache_key(*parts: str) -> str:
         return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
@@ -175,6 +229,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             scores, meta = self.state.guide(req)
             payload = {"scores": scores, "meta": meta}
+        elif path == "/solve":
+            if not str(req.get("statement", "")).strip():
+                self._error(422, "invalid_params", "statement is required")
+                return
+            proofs, meta = self.state.solve(req)
+            payload = {"proofs": proofs, "meta": meta}
         else:
             self._error(404, "not_found", f"unknown path {path}")
             return

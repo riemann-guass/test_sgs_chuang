@@ -5,6 +5,7 @@
     GET  /stats     token / 延迟 / 缓存统计（阶段 4 成本核算的依据）
     POST /conjecture
     POST /guide
+    POST /solve
 
 只依赖标准库。所有对外调用与解析细节都收敛在这里，Lean 侧只认契约。
 """
@@ -28,10 +29,14 @@ VERSION = "v1"
 # 关闭 thinking 时 16k 绰绰有余；打开 thinking 时实测需要 ≥16k 才不至于被 reasoning 吃光
 CONJECTURE_MAX_TOKENS = int(os.environ.get("CONJECTURE_MAX_TOKENS", "16384"))
 GUIDE_MAX_TOKENS = int(os.environ.get("GUIDE_MAX_TOKENS", "16384"))
+SOLVE_MAX_TOKENS = int(os.environ.get("SOLVE_MAX_TOKENS", "16384"))
 CONJECTURE_TEMPERATURE = float(os.environ.get("CONJECTURE_TEMPERATURE", "1.0"))
 # Guide 是搜索先验的来源，稳定性比多样性重要：实测 T=1.0 时最优候选出现
 # review = [8,8,3,8,8]（stdev 2.0），T=0.0 时为 [8,8,8,8,8]（stdev 0.0）。
 GUIDE_TEMPERATURE = float(os.environ.get("GUIDE_TEMPERATURE", "0.0"))
+# Solve 要的是**多样性**（solve_rate 是"k 次采样里成功几次"），所以默认给一个正温度；
+# 具体取值由闸门 G1 标定。
+SOLVE_TEMPERATURE = float(os.environ.get("SOLVE_TEMPERATURE", "0.6"))
 LOG_PATH = os.environ.get("PROXY_LOG_PATH", "proxy_log.jsonl")
 
 BACKEND_LOCK = threading.Lock()
@@ -149,6 +154,49 @@ def handle_guide(req: dict) -> dict:
     }
 
 
+def handle_solve(req: dict) -> dict:
+    """整篇证明生成：给定 statement 返回 k 篇候选证明（tactic 脚本）。
+
+    与 `/conjecture` 一样是**软失败**：解析不出证明就回 `{"proofs": []}`，
+    由调用方把空列表当作"本次没生成出东西"，而不是错误。
+    """
+    assert BACKEND is not None
+    statement = str(req.get("statement", ""))
+    if not statement.strip():
+        raise ValueError("statement 为空")
+    num_samples = max(1, min(8, int(req.get("num_samples", 4) or 4)))
+
+    prompt = prompts.solve_prompt(statement, num_samples)
+    with BACKEND_LOCK:
+        text, meta = BACKEND.chat(
+            [{"role": "user", "content": prompt}],
+            max_tokens=SOLVE_MAX_TOKENS,
+            temperature=SOLVE_TEMPERATURE,
+        )
+    parsed = prompts.extract_proofs(text)
+    seen: set[str] = set()
+    proofs = []
+    for proof in parsed:
+        if proof in seen:
+            continue
+        seen.add(proof)
+        if len(proofs) >= num_samples:
+            break
+        proofs.append({"index": len(proofs), "proof": proof, "raw": text[:4000]})
+    log_record(
+        {
+            "endpoint": "solve",
+            "num_samples": num_samples,
+            "parsed": len(parsed),
+            "kept": len(proofs),
+            "usage": meta.get("usage", {}),
+            "latency_ms": meta.get("latency_ms"),
+            "cache_hit": meta.get("cache_hit"),
+        }
+    )
+    return {"proofs": proofs, "meta": {**meta, "parsed_proofs": len(parsed)}}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "sgs-reap-proxy/" + VERSION
     protocol_version = "HTTP/1.1"
@@ -198,6 +246,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = handle_conjecture(req)
             elif path == "/guide":
                 payload = handle_guide(req)
+            elif path == "/solve":
+                payload = handle_solve(req)
             else:
                 self._error(404, "not_found", f"unknown path {path}")
                 return
