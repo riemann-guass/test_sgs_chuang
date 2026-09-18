@@ -51,6 +51,9 @@ wandb/
 *.jsonl
 sgs-reap/reap-fork/e2e_raw_tree.json
 
+# ---- 数据（是输入，不是实验产物：必须入库）----
+!sgs-reap/data/*.jsonl
+
 # ---- 编辑器 / 系统 ----
 .vscode/
 .idea/

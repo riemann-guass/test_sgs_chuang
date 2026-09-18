@@ -1,0 +1,10 @@
+{"id": "w01", "domain": "nat", "statement": "∀ (n : Nat), n + 0 = n", "note": "命题核心：加零。n + 0 定义上就是 n，一行 rfl 可解"}
+{"id": "w02", "domain": "nat", "statement": "∀ (n : Nat), n * 0 = 0", "note": "乘法递归在第二参数上，rfl 可解"}
+{"id": "w03", "domain": "nat", "statement": "∀ (n : Nat), n + 1 = n + 1", "note": "自反等式，作为最弱基线"}
+{"id": "w04", "domain": "nat", "statement": "∀ (n : Nat), (n + 1) * 0 = 0", "note": "复合项上的乘零"}
+{"id": "w05", "domain": "nat", "statement": "∀ (a b : Nat), a + b = b + a", "note": "交换律；核心库有 Nat.add_comm，非 rfl"}
+{"id": "w06", "domain": "prop", "statement": "∀ (P : Prop), P → P", "note": "Prop 级恒等；检验 intro/exact 链路"}
+{"id": "w07", "domain": "prop", "statement": "True", "note": "最小可证目标"}
+{"id": "w08", "domain": "nat", "statement": "1 = 1", "note": "闭式等式，绕开 ∀"}
+{"id": "w09", "domain": "nat", "statement": "∀ (n : Nat), 0 + n = n", "note": "需要归纳（0 + n 不是定义上等于 n）——预期 solve_rate = 0 的负例"}
+{"id": "w10", "domain": "prop", "statement": "∀ (P Q : Prop), P → Q", "note": "不可证（命题为假）——预期 solve_rate = 0 的负例"}
