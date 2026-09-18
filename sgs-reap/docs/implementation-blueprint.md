@@ -49,8 +49,10 @@ P0/P1.1 已完成；每个阶段独立冻结自己的接口，任一闸门不过
 | `tests/run_server_smoke.py` | 协议纯度 + 判定语义 + 两种 flush 路径 | ✅ |
 | `tests/run_solve_mock.py` | 离线 `statement → k 证明 → 验证 → 轨迹落盘` | ✅ |
 | `docs/phase4-log.md`、`docs/phase5-log.md` | 阶段日志 | ✅ |
-| `sgslean/lakefile.toml`（改）、`lean-toolchain`、`lake-manifest.json` | 加入并锁定 Mathlib 版本；reap 仍排在 Mathlib 之前 | ⬜ 需联网 |
-| `docs/upstream.md`（改） | 补 Mathlib 版本锁定行 | ⬜ 需联网 |
+| `sgslean/lakefile.toml`（改）、`lean-toolchain`、`lake-manifest.json` | 加入并锁定 Mathlib 版本；reap 仍排在 Mathlib 之前 | ✅ tag `v4.28.0-rc1`（`5352afccd`） |
+| `docs/upstream.md`（改） | 补 Mathlib 版本锁定行 | ✅ |
+| `sgslean/SgsLean/Syntax.lean` | `ℕ` 记法补丁拆出（与 Mathlib 互斥，见 phase6-log 现象 4） | ✅ |
+| `SgsLean/Server.lean`（重写） | 执行模型：每批 spawn 一个 `lean` 子进程 + 文件通道 | ✅ |
 | `sgslean/SgsLean/Trace.lean` | Lean 侧轨迹记录最小版（P2 展开为子目标签名与分层统计） | ⬜ |
 | `tests/run_solve_e2e.py` | 真实模型版：`/solve` → `Server.lean` 验证 → 轨迹落盘 | ⬜ 要花 API 费用 |
 
@@ -190,7 +192,8 @@ frontend 的真实耗时，P1.3 成本核算用）。
 | 实现要点 | 说明 |
 |---|---|
 | 入口 | `lake exe sgslean-server`（`[[lean_exe]]` + `supportInterpreter = true`） |
-| 驱动方式 | 主循环 + `Lean.Elab.runFrontend` 跑**内容固定**的片段（`import` + 一个 `example`），片段里 `run_tac` 调 `runJobs` |
-| 数据通道 | 进程内 `IO.Ref`（作业槽 / 结果槽），不经文件、不做字符串拼接 |
-| 搜索路径 | 启动时 `Lean.initSearchPath (← Lean.findSysroot)`（standalone exe 默认搜索路径为空） |
-| 实测成本 | 一次 frontend（2072 个模块 + 13 条判定）≈ 18 s；必须批量喂请求 |
+| 驱动方式 | 父进程每批写 `jobs.json` + 片段，**spawn 一个 `lean` 子进程**执行片段（`run_child.cmd` 把子进程输出重定向到 `child.log`），再读 `out.json` |
+| 数据通道 | 文件（`jobs.json` / `out.json`），相对工作目录 `.lake/sgslean-server-work`；工作目录里另放一份 `lean-toolchain` 保证 elan 选对工具链 |
+| 环境开关 | `SGSLEAN_IMPORTS`（默认 `Mathlib`；`none` = 无 Mathlib 快速模式，注意 Windows 上空串等于删除变量） |
+| 实测成本 | 快速模式 ≈15 s/批；Mathlib 模式 67 s（热）～493 s（冷）/批；**必须批量喂请求** |
+| 为什么不用进程内 frontend | 导入 Mathlib 时 `cannot evaluate [init] ... in the same module`；且 frontend 消息默认打 stdout、崩溃会带走服务进程（详见 `docs/phase6-log.md` 现象 5/6） |

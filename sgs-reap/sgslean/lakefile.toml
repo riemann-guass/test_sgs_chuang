@@ -11,6 +11,14 @@ experimental.module = true
 name = "reap"
 path = "../reap-fork"
 
+# Mathlib 锁到与工具链**同名**的 tag：lean-toolchain 是 v4.28.0-rc1，
+# 所以 mathlib 也取 v4.28.0-rc1（commit 5352afccd6866369be9de43f5b7ec47203555f44）。
+# 版本一致性是硬要求：olean 与工具链绑定，rc 与正式版之间也不通用。
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.28.0-rc1"
+
 [[lean_lib]]
 name = "SgsLean"
 

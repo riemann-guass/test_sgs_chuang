@@ -6,6 +6,7 @@
 见 `docs/phase3-log.md`。
 -/
 import SgsLean
+import SgsLean.Syntax
 
 open Lean Meta Elab Tactic
 open SgsLean

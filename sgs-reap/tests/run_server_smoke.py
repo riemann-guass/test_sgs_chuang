@@ -31,13 +31,21 @@ SGSLEAN = ROOT / "sgslean"
 RESULTS = ROOT / "experiments" / "results"
 LAKE = os.environ.get("LAKE", "lake")
 
+# 默认走**无 Mathlib** 的快速模式（本测试考的是协议与判定管线，不是 Mathlib 本身）；
+# 想看生产配置就显式设 `SGSLEAN_IMPORTS=Mathlib`（一次 frontend ≈ 4–8 分钟，见 docs/phase6-log.md）。
+# 哨兵值是 `none` 而不是空串：Windows 上空串环境变量等于删除（见 SgsLean/Server.lean 注释）。
+if "SGSLEAN_IMPORTS" not in os.environ:
+    os.environ["SGSLEAN_IMPORTS"] = "none"
+MATHLIB_MODE = "Mathlib" in os.environ["SGSLEAN_IMPORTS"]
+
 PROP = "∀ (n : Nat), n + 0 = n"
 
 # (id, 请求行, 期望)
 # 期望结构：{"ok": bool, "reason": str} 或 {"error": str}
 REQUESTS: list[tuple[str, str, dict]] = [
-    # ping 的结果里没有 `ok` 字段（它回的是环境信息），只看 status
-    ("ping", '{"id":"ping","cmd":"ping"}', {"field": ("status", "ok")}),
+    # ping 的结果里没有 `ok` 字段（它回的是**子进程**环境信息）：查 status 与 mathlib
+    ("ping", '{"id":"ping","cmd":"ping"}',
+     {"field": ("status", "ok"), "mathlib": MATHLIB_MODE}),
     (
         "check_ok",
         json.dumps({"id": "check_ok", "cmd": "check", "stmt": PROP}, ensure_ascii=False),
@@ -118,6 +126,37 @@ TRAILING = (
     json.dumps({"id": "eof_flush", "cmd": "check", "stmt": PROP}, ensure_ascii=False),
 )
 
+# Mathlib 模式专属用例：只有显式声明了 `SGSLEAN_IMPORTS=Mathlib` 才跑
+# （每条都要等一次完整 Mathlib 导入，很慢；离线模式跑它们会直接判 unknown_identifier）。
+MATHLIB_REQUESTS: list[tuple[str, str, dict]] = [
+    (
+        "check_mathlib_symbol",
+        json.dumps({"id": "check_mathlib_symbol", "cmd": "check",
+                    "stmt": "∀ (n : Nat), Even (n * (n + 1))"}, ensure_ascii=False),
+        {"result_ok": True, "reason": "ok"},
+    ),
+    (
+        "verify_ring",
+        json.dumps({"id": "verify_ring", "cmd": "verify",
+                    "stmt": "∀ (x y : ℝ), (x + y) ^ 2 = x ^ 2 + 2 * x * y + y ^ 2",
+                    "proof": "intro x y\nring"}, ensure_ascii=False),
+        {"result_ok": True, "reason": "ok", "finalChecked": True},
+    ),
+    (
+        # omega 证不出这条（会如实给出反例约束），用来验证"失败也是有效结论"
+        "verify_omega_fails",
+        json.dumps({"id": "verify_omega_fails", "cmd": "verify",
+                    "stmt": "∀ (n : Nat), 3 ∣ n ^ 3 + 2 * n",
+                    "proof": "intro n\nomega"}, ensure_ascii=False),
+        # 判定码不稳定：omega 失败时实测既可能是 `type_error`（给出反例约束），
+        # 也可能是 `mvar_or_sorry`（它内部留下了 sorryAx）。两者都表示"拒"。
+        {"result_ok": False, "reason_any": ["type_error", "mvar_or_sorry"]},
+    ),
+]
+
+if MATHLIB_MODE:
+    REQUESTS = REQUESTS + MATHLIB_REQUESTS
+
 
 def run_server(lines: list[str], timeout: float = 1800.0) -> tuple[list[str], str, float]:
     payload = "\n".join(lines) + "\n"
@@ -183,8 +222,14 @@ def main() -> int:
             elif "reason" in want and result.get("reason") != want["reason"]:
                 failures.append(f"{rid}: reason 应为 {want['reason']}，实际 {result.get('reason')}"
                                 f"（detail={str(result.get('detail'))[:160]}）")
+            elif "reason_any" in want and result.get("reason") not in want["reason_any"]:
+                failures.append(f"{rid}: reason 应属于 {want['reason_any']}，实际 {result.get('reason')}"
+                                f"（detail={str(result.get('detail'))[:160]}）")
             elif "isProp" in want and result.get("isProp") is not want["isProp"]:
                 failures.append(f"{rid}: isProp 应为 {want['isProp']}，实际 {result.get('isProp')}")
+            elif "mathlib" in want and result.get("mathlib") is not want["mathlib"]:
+                failures.append(f"{rid}: mathlib 应为 {want['mathlib']}，实际 {result.get('mathlib')}"
+                                f"（importedModules={result.get('importedModules')}）")
             elif "finalChecked" in want and result.get("finalChecked") is not want["finalChecked"]:
                 failures.append(f"{rid}: finalChecked 应为 {want['finalChecked']}，实际 {result.get('finalChecked')}")
             elif "field" in want:

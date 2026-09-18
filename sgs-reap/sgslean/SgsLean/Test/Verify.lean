@@ -4,6 +4,7 @@
 与 `Test/Gate.lean` 同构：断言全部在 `run_tac` 内执行，构建通过即断言通过。
 -/
 import SgsLean
+import SgsLean.Syntax
 
 open Lean Meta Elab Tactic
 open SgsLean

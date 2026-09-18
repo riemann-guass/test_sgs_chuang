@@ -43,6 +43,11 @@ RUNS = ROOT / "experiments" / "runs"
 LAKE = os.environ.get("LAKE", "lake")
 SAMPLES_PER_STATEMENT = int(os.environ.get("SOLVE_SAMPLES", "3"))
 
+# 同 run_server_smoke.py：默认走无 Mathlib 的快速模式（本链路考的是"生成→验证→落轨迹"，
+# 与是否加载 Mathlib 无关）；生产配置用 `SGSLEAN_IMPORTS=Mathlib` 跑。
+if "SGSLEAN_IMPORTS" not in os.environ:
+    os.environ["SGSLEAN_IMPORTS"] = "none"
+
 # 与假服务实现无关的显式期望：w01–w08 的正确答案在假服务的表里，w09/w10 故意不可解
 EXPECT_NONZERO = {f"w{i:02d}" for i in range(1, 9)}
 EXPECT_ZERO = {"w09", "w10"}

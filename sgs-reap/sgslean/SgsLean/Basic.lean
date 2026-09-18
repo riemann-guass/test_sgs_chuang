@@ -19,16 +19,24 @@ public meta import Reap.Tactic.TreeSearch
 open Lean Meta Elab Tactic
 open Reap.TreeSearch
 
-/-- 记法补丁：见文件头注释。未引入 Mathlib 时 `ℕ` 不解析，模型输出里的 `ℕ` 级语句
-会被判成「记法缺失」而不是「数学错误」，利用率指标会被系统性拉低。 -/
-notation "ℕ" => Nat
+-- 注意：`ℕ` 记法补丁**不在这里**，而在 `SgsLean/Syntax.lean`。
+-- 原因：Mathlib 自带 `termℕ`，重复声明是硬错误（`environment already contains 'termℕ'`），
+-- 所以它必须与 Mathlib 的 import 互斥——详见 `SgsLean/Syntax.lean` 的文件头。
 
 public meta section
 
 namespace SgsLean
 
-/-- 门检与验证共用的默认心跳预算，与 `reap-fork/tests/Calibrate.lean` 的标定口径一致。 -/
-def defaultHeartbeats : Nat := 200000
+/-- 门检与验证共用的默认心跳预算（单位与 Lean 的 `maxHeartbeats` 选项一致：千次心跳）。
+
+标定版用的是 200000（= 2 亿次心跳），只够应付 Nat/Prop 级的初等判定。P1.2 引入 Mathlib 后
+必须放宽，原因很具体：我们的判定跑在 `lean` 驱动里，**Mathlib 的 tactic 代码是解释执行的**
+（不像 `lake build` 那样有原生代码），`ring` / `omega` 这类 tactic 的实际开销比编译版高
+一个量级。实测：ℝ 上的 `(x+y)^2 = x^2+2xy+y^2` 配 `ring`，在 2 亿次心跳下报
+`timeout at isDefEq`，放宽后才判为通过。
+
+真正的墙钟上限是 `reap.timeout`（默认 200 s/次 tactic），G1 标定时两者都要如实记录。 -/
+def defaultHeartbeats : Nat := 4000000
 
 /-- 探针假设名。用独立前缀，避免与 reap 的 `sgs_aux_` 以及被验证语句里的名字冲突。 -/
 def probeHypName : String := "sgs_probe_"

@@ -1,7 +1,7 @@
 {
-  "run_dir": "experiments\\runs\\20260917T102107Z",
-  "elapsed_s": 15.8,
-  "frontend_ms": 14267,
+  "run_dir": "experiments\\runs\\20260918T070228Z",
+  "elapsed_s": 20.9,
+  "frontend_ms": 16007,
   "samples_per_statement": 3,
   "statements": 10,
   "total_proofs": 28,
