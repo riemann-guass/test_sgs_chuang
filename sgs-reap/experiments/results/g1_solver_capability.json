@@ -1,30 +1,38 @@
 {
-  "generated_at": "2026-09-18T08:49:13.043421+00:00",
-  "mode": "dry-run",
-  "imports": "none",
+  "generated_at": "2026-09-18T09:02:17.478593+00:00",
+  "mode": "http:http://127.0.0.1:8770/solve",
+  "imports": "(server default)",
   "k": 3,
-  "lemmas": 12,
-  "total_candidates": 36,
-  "total_verified": 12,
+  "lemmas": 10,
+  "total_candidates": 30,
+  "total_verified": 26,
   "nonzero_ratio": 1.0,
-  "mean_solve_rate": 0.3333,
-  "min_solve_rate": 0.3333,
-  "max_solve_rate": 0.3333,
-  "fully_solved": [],
+  "mean_solve_rate": 0.8667,
+  "min_solve_rate": 0.6667,
+  "max_solve_rate": 1.0,
+  "fully_solved": [
+    "g02",
+    "g04",
+    "g07",
+    "g08",
+    "g09",
+    "g10"
+  ],
   "zero_solved": [],
   "histogram": {
-    "部分": 12
+    "部分": 4,
+    "1": 6
   },
   "failure_reasons": {
-    "unclosed_goals": 12,
-    "mvar_or_sorry": 12
+    "mvar_or_sorry": 3,
+    "type_error": 1
   },
   "timing": {
-    "solve_phase_s": 0.0,
-    "verify_phase_s": 18.3,
-    "frontend_total_ms": 14900,
+    "solve_phase_s": 9.2,
+    "verify_phase_s": 616.1,
+    "frontend_total_ms": 606497,
     "lean_batches": 1,
-    "total_s": 18.3
+    "total_s": 625.3
   },
   "verdict": "pass",
   "criterion": "nonzero_ratio >= 0.2 视为通过；mean>0.9 记 too_easy 警告",
@@ -35,9 +43,9 @@
       "domain": "nat",
       "statement": "∀ (n : Nat), n + 0 = n",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 2,
+      "solve_rate": 0.6667,
+      "solve_latency_s": 0.99,
       "verdicts": [
         {
           "index": 0,
@@ -47,8 +55,8 @@
         },
         {
           "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         },
         {
@@ -60,8 +68,8 @@
       ],
       "proofs": [
         "intro n\nrfl",
-        "exact ?_",
-        "sorry"
+        "intro n\nsimp",
+        "intro n\nrw [Nat.add_comm]\nrfl"
       ],
       "reference_proof": "intro n\nrfl"
     },
@@ -70,9 +78,9 @@
       "domain": "nat",
       "statement": "∀ (n : Nat), n * 0 = 0",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 3,
+      "solve_rate": 1.0,
+      "solve_latency_s": 0.94,
       "verdicts": [
         {
           "index": 0,
@@ -82,21 +90,21 @@
         },
         {
           "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         },
         {
           "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         }
       ],
       "proofs": [
-        "intro n\nrfl",
-        "exact ?_",
-        "sorry"
+        "intro n\nrw [Nat.mul_zero]",
+        "intro n\nsimp",
+        "intro n\ninduction n with\n| zero => rfl\n| succ n ih => rw [Nat.succ_mul, ih]"
       ],
       "reference_proof": "intro n\nrfl"
     },
@@ -105,33 +113,33 @@
       "domain": "nat",
       "statement": "∀ (n : Nat), 0 + n = n",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 2,
+      "solve_rate": 0.6667,
+      "solve_latency_s": 0.98,
       "verdicts": [
         {
           "index": 0,
+          "ok": false,
+          "reason": "mvar_or_sorry",
+          "protocol_ok": true
+        },
+        {
+          "index": 1,
           "ok": true,
           "reason": "ok",
           "protocol_ok": true
         },
         {
-          "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
-          "protocol_ok": true
-        },
-        {
           "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         }
       ],
       "proofs": [
+        "intro n\nrfl",
         "intro n\nsimp",
-        "exact ?_",
-        "sorry"
+        "intro n\nrw [Nat.zero_add]"
       ],
       "reference_proof": "intro n\nsimp"
     },
@@ -140,9 +148,9 @@
       "domain": "nat",
       "statement": "∀ (n : Nat), n * 1 = n",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 3,
+      "solve_rate": 1.0,
+      "solve_latency_s": 0.93,
       "verdicts": [
         {
           "index": 0,
@@ -152,21 +160,21 @@
         },
         {
           "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         },
         {
           "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         }
       ],
       "proofs": [
+        "intro n\nrw [Nat.mul_one]",
         "intro n\nsimp",
-        "exact ?_",
-        "sorry"
+        "intro n\nexact Nat.mul_one n"
       ],
       "reference_proof": "intro n\nsimp"
     },
@@ -175,33 +183,33 @@
       "domain": "nat",
       "statement": "∀ (n : Nat), 1 * n = n",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 2,
+      "solve_rate": 0.6667,
+      "solve_latency_s": 0.85,
       "verdicts": [
         {
           "index": 0,
+          "ok": false,
+          "reason": "mvar_or_sorry",
+          "protocol_ok": true
+        },
+        {
+          "index": 1,
           "ok": true,
           "reason": "ok",
           "protocol_ok": true
         },
         {
-          "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
-          "protocol_ok": true
-        },
-        {
           "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         }
       ],
       "proofs": [
+        "intro n\nrfl",
         "intro n\nsimp",
-        "exact ?_",
-        "sorry"
+        "intro n\nrw [one_mul]"
       ],
       "reference_proof": "intro n\nsimp"
     },
@@ -210,9 +218,9 @@
       "domain": "nat",
       "statement": "∀ (n : Nat), n + 0 = 0 + n",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 2,
+      "solve_rate": 0.6667,
+      "solve_latency_s": 0.94,
       "verdicts": [
         {
           "index": 0,
@@ -222,21 +230,21 @@
         },
         {
           "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         },
         {
           "index": 2,
           "ok": false,
-          "reason": "mvar_or_sorry",
+          "reason": "type_error",
           "protocol_ok": true
         }
       ],
       "proofs": [
+        "intro n\ninduction n with\n| zero => rfl\n| succ k ih => rw [Nat.succ_add, Nat.add_succ, ih]",
         "intro n\nsimp",
-        "exact ?_",
-        "sorry"
+        "intro n\ninduction n with\n| zero => rfl\n| succ k ih => simp [Nat.succ_add, Nat.add_succ, ih]"
       ],
       "reference_proof": "intro n\nsimp"
     },
@@ -245,9 +253,9 @@
       "domain": "nat",
       "statement": "∀ (a b : Nat), a + b = b + a",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 3,
+      "solve_rate": 1.0,
+      "solve_latency_s": 1.06,
       "verdicts": [
         {
           "index": 0,
@@ -257,21 +265,21 @@
         },
         {
           "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         },
         {
           "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         }
       ],
       "proofs": [
+        "intro a b\ninduction a with\n| zero =>\n  simp\n| succ a ih =>\n  rw [Nat.succ_add, Nat.add_succ, ih]",
         "intro a b\nexact Nat.add_comm a b",
-        "exact ?_",
-        "sorry"
+        "intro a b\nsimp [Nat.add_comm]"
       ],
       "reference_proof": "intro a b\nexact Nat.add_comm a b"
     },
@@ -280,9 +288,9 @@
       "domain": "nat",
       "statement": "∀ (a b : Nat), a * b = b * a",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 3,
+      "solve_rate": 1.0,
+      "solve_latency_s": 0.86,
       "verdicts": [
         {
           "index": 0,
@@ -292,21 +300,21 @@
         },
         {
           "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         },
         {
           "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         }
       ],
       "proofs": [
+        "intro a b\ninduction a with\n| zero =>\n  simp\n| succ a ih =>\n  rw [Nat.succ_mul, Nat.mul_succ, ih]",
         "intro a b\nexact Nat.mul_comm a b",
-        "exact ?_",
-        "sorry"
+        "intro a b\nsimp [Nat.mul_comm]"
       ],
       "reference_proof": "intro a b\nexact Nat.mul_comm a b"
     },
@@ -315,9 +323,9 @@
       "domain": "nat",
       "statement": "∀ (a b c : Nat), a + b + c = a + (b + c)",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 3,
+      "solve_rate": 1.0,
+      "solve_latency_s": 0.77,
       "verdicts": [
         {
           "index": 0,
@@ -327,21 +335,21 @@
         },
         {
           "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         },
         {
           "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         }
       ],
       "proofs": [
-        "intro a b c\nexact Nat.add_assoc a b c",
-        "exact ?_",
-        "sorry"
+        "intro a b c\nrw [Nat.add_assoc]",
+        "intro a b c\nsimp [Nat.add_assoc]",
+        "intro a b c\nexact Nat.add_assoc a b c"
       ],
       "reference_proof": "intro a b c\nexact Nat.add_assoc a b c"
     },
@@ -350,9 +358,9 @@
       "domain": "nat",
       "statement": "∀ (a b c : Nat), a * b * c = a * (b * c)",
       "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
+      "verified": 3,
+      "solve_rate": 1.0,
+      "solve_latency_s": 0.85,
       "verdicts": [
         {
           "index": 0,
@@ -362,93 +370,23 @@
         },
         {
           "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         },
         {
           "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
+          "ok": true,
+          "reason": "ok",
           "protocol_ok": true
         }
       ],
       "proofs": [
+        "intro a b c\nrw [Nat.mul_assoc]",
         "intro a b c\nexact Nat.mul_assoc a b c",
-        "exact ?_",
-        "sorry"
+        "intro a b c\nsimp [Nat.mul_assoc]"
       ],
       "reference_proof": "intro a b c\nexact Nat.mul_assoc a b c"
-    },
-    {
-      "id": "g11",
-      "domain": "nat",
-      "statement": "∀ (a b c : Nat), a * (b + c) = a * b + a * c",
-      "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
-      "verdicts": [
-        {
-          "index": 0,
-          "ok": true,
-          "reason": "ok",
-          "protocol_ok": true
-        },
-        {
-          "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
-          "protocol_ok": true
-        },
-        {
-          "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
-          "protocol_ok": true
-        }
-      ],
-      "proofs": [
-        "intro a b c\nexact Nat.mul_add a b c",
-        "exact ?_",
-        "sorry"
-      ],
-      "reference_proof": "intro a b c\nexact Nat.mul_add a b c"
-    },
-    {
-      "id": "g12",
-      "domain": "nat",
-      "statement": "∀ (a b c : Nat), (a + b) * c = a * c + b * c",
-      "num_samples": 3,
-      "verified": 1,
-      "solve_rate": 0.3333,
-      "solve_latency_s": 0.0,
-      "verdicts": [
-        {
-          "index": 0,
-          "ok": true,
-          "reason": "ok",
-          "protocol_ok": true
-        },
-        {
-          "index": 1,
-          "ok": false,
-          "reason": "unclosed_goals",
-          "protocol_ok": true
-        },
-        {
-          "index": 2,
-          "ok": false,
-          "reason": "mvar_or_sorry",
-          "protocol_ok": true
-        }
-      ],
-      "proofs": [
-        "intro a b c\nexact Nat.add_mul a b c",
-        "exact ?_",
-        "sorry"
-      ],
-      "reference_proof": "intro a b c\nexact Nat.add_mul a b c"
     }
   ]
 }

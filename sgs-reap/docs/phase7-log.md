@@ -86,6 +86,35 @@ exit=0
 > 4 位小数（0.3333 < 0.33333…）→ **干跑被误判为失败**。改成整数比较才正确：
 > 浮点比较不要用在"恰好等于"这类断言上。
 
+## 真代理 10 条小样（2026-09-18，先量成本再全量）
+
+```powershell
+# 带网络权限起代理（沙箱内不带网络会直接 503，见下）
+python service\proxy.py --port 8770
+python tests\run_gate_g1.py --endpoint http://127.0.0.1:8770/solve --limit 10 --k 3 --chunk 30
+```
+
+```
+[g1] 验证批 1: 30 条（frontend 606497ms，累计 625s）
+[g1] mode=http:... imports=(server default) k=3 引理 10 条 / 候选 30 篇 / 通过 26 篇
+[g1] solve_rate: mean=0.8667 min=0.6667 max=1.0 非零解占比=1.0
+[g1] 分布直方图={'部分': 4, '1': 6} 失败原因={'mvar_or_sorry': 3, 'type_error': 1}
+[g1] 判定：pass
+stats: {"model":"deepseek-flash","calls":10,"prompt_tokens":2484,"completion_tokens":563,"total_latency_ms":8990}
+```
+
+三条要记住的数字：
+
+* **API 便宜到可以忽略**：10 条引理 = 10 次调用（一次拿 k=3 篇），共 3,047 token、9.0 s；
+  按此比例全量 63 条 ≈ 19k token、1 分钟、**成本在分币量级**。
+* **Lean 侧才是瓶颈**：30 篇候选的**一次**批处理 frontend 花了 **606 s**（≈20 s/篇），
+  主要是 Mathlib 下 tactic 的解释执行开销 —— 全量 189 篇候选需要切 4–6 批，预计 **30–60 分钟**。
+* 这 10 条是引理集**最容易的头部**（`rfl`/`simp` 级），mean 0.8667 只说明"模型确实能证东西"，
+  真正的分布要看全量 63 条。
+
+**坑（记录）**：代理必须在**有网络权限**的进程里起——沙箱内起代理时，`/health` 正常但
+`/solve` 直接 503（出网被拦），`stats` 显示 `calls=0`，很容易误判成"模型不行"。
+
 ## 现在在哪 / 下一步
 
 免费半场完成：引理集 63 条（参考证明全部经验证）、harness 干跑通过、反向对照有效。
