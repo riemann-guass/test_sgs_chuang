@@ -107,6 +107,10 @@ def handleJob (job : Json) : TacticM Json := do
       match (job.getObjValAs? String "stmt").toOption, (job.getObjValAs? String "proof").toOption with
       | some stmt, some proof => return okResponse id (toJson (← Trace.traceScript stmt proof))
       | _, _ => return errResponse id "invalid_params" "trace 需要字符串字段 stmt 与 proof"
+    | "trivial" =>
+      match (job.getObjValAs? String "stmt").toOption with
+      | some stmt => return okResponse id (toJson (← Trivial.isTrivial stmt))
+      | none => return errResponse id "invalid_params" "trivial 需要字符串字段 stmt"
     | _ => return errResponse id "bad_request" s!"unknown cmd: {repr cmd}"
   catch ex =>
     return errResponse id "internal_error" (← ex.toMessageData.toString)

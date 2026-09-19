@@ -2,3 +2,4 @@
 -- 而 `module` 文件不能导入非 `module` 模块（与 `reap-fork/Reap/Test.lean` 的做法一致）。
 import SgsLean.Test.Gate
 import SgsLean.Test.Verify
+import SgsLean.Test.Trivial
