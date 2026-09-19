@@ -1,0 +1,171 @@
+{
+  "generated_at": "2026-09-19T11:38:53.943173+00:00",
+  "mode": "dry-run",
+  "imports": "(server default)",
+  "lemmas": 38,
+  "traces": 38,
+  "timing": {
+    "frontend_total_ms": 229888,
+    "total_s": 240.5
+  },
+  "mining": {
+    "min_targets": 2,
+    "traces": 38,
+    "verified_traces": 38,
+    "steps": 43,
+    "signatures": 36,
+    "buckets": {
+      "demand": 5,
+      "local": 31
+    },
+    "demand_count": 5,
+    "top_demand": [
+      {
+        "sig": "n ≤ n * n + 1",
+        "freq_total": 3,
+        "freq_success": 3,
+        "freq_failure": 0,
+        "avg_cost": 1.333,
+        "targets": [
+          "g20",
+          "g38"
+        ],
+        "num_targets": 2,
+        "score": 4.0,
+        "bucket": "demand"
+      },
+      {
+        "sig": "n + 0 = n",
+        "freq_total": 2,
+        "freq_success": 2,
+        "freq_failure": 0,
+        "avg_cost": 1.5,
+        "targets": [
+          "g01",
+          "g37"
+        ],
+        "num_targets": 2,
+        "score": 3.0,
+        "bucket": "demand"
+      },
+      {
+        "sig": "P",
+        "freq_total": 2,
+        "freq_success": 2,
+        "freq_failure": 0,
+        "avg_cost": 1.0,
+        "targets": [
+          "g39",
+          "g40"
+        ],
+        "num_targets": 2,
+        "score": 2.0,
+        "bucket": "demand"
+      },
+      {
+        "sig": "n * 0 = 0",
+        "freq_total": 2,
+        "freq_success": 2,
+        "freq_failure": 0,
+        "avg_cost": 1.0,
+        "targets": [
+          "g02",
+          "g37"
+        ],
+        "num_targets": 2,
+        "score": 2.0,
+        "bucket": "demand"
+      },
+      {
+        "sig": "n < n + 1",
+        "freq_total": 2,
+        "freq_success": 2,
+        "freq_failure": 0,
+        "avg_cost": 1.0,
+        "targets": [
+          "g16",
+          "g38"
+        ],
+        "num_targets": 2,
+        "score": 2.0,
+        "bucket": "demand"
+      }
+    ]
+  },
+  "demand_entries": [
+    {
+      "sig": "n ≤ n * n + 1",
+      "freq_total": 3,
+      "freq_success": 3,
+      "freq_failure": 0,
+      "avg_cost": 1.333,
+      "targets": [
+        "g20",
+        "g38"
+      ],
+      "num_targets": 2,
+      "score": 4.0,
+      "bucket": "demand"
+    },
+    {
+      "sig": "n + 0 = n",
+      "freq_total": 2,
+      "freq_success": 2,
+      "freq_failure": 0,
+      "avg_cost": 1.5,
+      "targets": [
+        "g01",
+        "g37"
+      ],
+      "num_targets": 2,
+      "score": 3.0,
+      "bucket": "demand"
+    },
+    {
+      "sig": "P",
+      "freq_total": 2,
+      "freq_success": 2,
+      "freq_failure": 0,
+      "avg_cost": 1.0,
+      "targets": [
+        "g39",
+        "g40"
+      ],
+      "num_targets": 2,
+      "score": 2.0,
+      "bucket": "demand"
+    },
+    {
+      "sig": "n * 0 = 0",
+      "freq_total": 2,
+      "freq_success": 2,
+      "freq_failure": 0,
+      "avg_cost": 1.0,
+      "targets": [
+        "g02",
+        "g37"
+      ],
+      "num_targets": 2,
+      "score": 2.0,
+      "bucket": "demand"
+    },
+    {
+      "sig": "n < n + 1",
+      "freq_total": 2,
+      "freq_success": 2,
+      "freq_failure": 0,
+      "avg_cost": 1.0,
+      "targets": [
+        "g16",
+        "g38"
+      ],
+      "num_targets": 2,
+      "score": 2.0,
+      "bucket": "demand"
+    }
+  ],
+  "artifact_entries": [],
+  "verdict": "pass",
+  "criterion": "bucket=demand 的签名数 ≥ 3 视为通过（跨 ≥ min_targets 个目标且至少一次出现在成功轨迹里）",
+  "failures": []
+}
