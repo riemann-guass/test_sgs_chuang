@@ -93,7 +93,7 @@ def traceScript (stmt proof : String) : TacticM TraceResult := do
         |>.map (fun l => l.trimAscii.toString) |>.filter (fun l => !l.isEmpty)
       let mut acc : Array TraceStep := #[]
       for line in lines do
-        let result ← evalTacticStrNoFinalCheck ctx line defaultHeartbeats
+        let result ← evalTacticStrNoFinalCheck ctx line (← getHeartbeats)
         let goals ← getUnsolvedGoals
         let signature ← goalSignature goals
         acc := acc.push {

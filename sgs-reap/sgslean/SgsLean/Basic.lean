@@ -27,7 +27,7 @@ public meta section
 
 namespace SgsLean
 
-/-- 门检与验证共用的默认心跳预算（单位与 Lean 的 `maxHeartbeats` 选项一致：千次心跳）。
+/-- 门检与验证共用的**默认**心跳预算（单位与 Lean 的 `maxHeartbeats` 选项一致：千次心跳）。
 
 标定版用的是 200000（= 2 亿次心跳），只够应付 Nat/Prop 级的初等判定。P1.2 引入 Mathlib 后
 必须放宽，原因很具体：我们的判定跑在 `lean` 驱动里，**Mathlib 的 tactic 代码是解释执行的**
@@ -35,8 +35,30 @@ namespace SgsLean
 一个量级。实测：ℝ 上的 `(x+y)^2 = x^2+2xy+y^2` 配 `ring`，在 2 亿次心跳下报
 `timeout at isDefEq`，放宽后才判为通过。
 
-真正的墙钟上限是 `reap.timeout`（默认 200 s/次 tactic），G1 标定时两者都要如实记录。 -/
+真正的墙钟上限是 `reap.timeout`（默认 200 s/次 tactic），G1 标定时两者都要如实记录。
+
+**运行时可覆盖**：环境变量 `SGSLEAN_HEARTBEATS`（见 `getHeartbeats`）。
+miniF2F 上的 G1 有 74% 的失败是 `exception`（含心跳耗尽），到底是"模型证不出"还是
+"预算掐死"必须能不改代码地分离——这是阶段 A 诊断的前提。 -/
 def defaultHeartbeats : Nat := 4000000
+
+/-- 运行时心跳预算。
+
+每批的 `lean` 子进程启动时读**一次**环境变量 `SGSLEAN_HEARTBEATS`，之后整批复用；
+读不到或解析失败则退回 `defaultHeartbeats`。
+
+不要把它做成"每条作业各读一次环境变量"：判定的成本极高，读环境变量的开销虽小，
+但把预算变成逐条可变会让"同一批里判定标准不一致"，日志也就没法解释。 -/
+initialize heartbeatsRef : IO.Ref Nat ← do
+  let value ← match (← IO.getEnv "SGSLEAN_HEARTBEATS") with
+    | some raw => pure ((raw.trimAscii.toString.toNat?).getD defaultHeartbeats)
+    | none => pure defaultHeartbeats
+  IO.mkRef value
+
+/-- 读取当前批的心跳预算。写成 `{m}` 泛化形式，便于在 `TacticM` / `MetaM` / `CoreM` 里直接用
+（与 `Reap.WallClock` 的 `MonadLiftT IO` 写法一致）。 -/
+def getHeartbeats {m : Type → Type} [Monad m] [MonadLiftT IO m] : m Nat :=
+  liftM (m := IO) heartbeatsRef.get
 
 /-- 探针假设名。用独立前缀，避免与 reap 的 `sgs_aux_` 以及被验证语句里的名字冲突。 -/
 def probeHypName : String := "sgs_probe_"

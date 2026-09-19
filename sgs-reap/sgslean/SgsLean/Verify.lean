@@ -77,7 +77,7 @@ def verify (stmt proof : String) : TacticM VerifyResult := do
       setGoals [obligation.mvarId!]
       let ctx ← mkProofCheckContext
       let action := MCTS.wrapProofScriptAsTactic (normalizeNewlines proof)
-      let result ← evalTacticStrNoFinalCheck ctx action defaultHeartbeats
+      let result ← evalTacticStrNoFinalCheck ctx action (← getHeartbeats)
       let goalsLeft ← getUnsolvedGoals
       match result with
       | .error err =>

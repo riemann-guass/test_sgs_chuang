@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-09-19T14:45:02.682484+00:00",
+  "traces": "experiments\\runs\\g1_20260919T131818Z\\traces.jsonl",
+  "budget": {
+    "heartbeats": 40000000,
+    "tactic_timeout_ms": 300000,
+    "imports": "Mathlib",
+    "note": "原始 G1 用过的是库里的编译期默认（心跳 4,000,000 / 墙钟 200,000 ms）"
+  },
+  "exceptions_total": 122,
+  "sampled": 6,
+  "new_reason_histogram": {
+    "unknown_identifier": 1,
+    "unclosed_goals": 2,
+    "ok": 3
+  },
+  "rescued": 6,
+  "rescued_ratio": 1.0,
+  "newly_ok": 3,
+  "timing": {
+    "total_s": 817.0,
+    "frontend_ms": 812112
+  },
+  "per_sample": [
+    {
+      "target": "aime_1984_p5",
+      "index": 0,
+      "old_reason": "exception",
+      "new_reason": "unknown_identifier",
+      "new_ok": false,
+      "goals_left": 0,
+      "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown constant `Real.logb_eq_div_logb`\",\"endPos\":{\"column\":130,\"line\":13},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean.unknownIdentifier._namedError\",\"pos\":{\"column\":109,\"line\":13},\"severity\":\"error\"},{\"caption\":\"\",\"data\":\"Unknown constant `Real.logb_eq_div_logb`\",\"endPos\":{\"column\":227,\"line\":13},",
+      "stmt": "∀ (a b : ℝ) (h₀ : Real.logb 8 a + Real.logb 4 (b ^ 2) = 5) (h₁ : Real.logb 8 b + Real.logb 4 (a ^ 2) = 7), a * b = 512"
+    },
+    {
+      "target": "algebra_amgm_prod1toneq1_sum1tongeqn",
+      "index": 0,
+      "old_reason": "exception",
+      "new_reason": "unclosed_goals",
+      "new_ok": false,
+      "goals_left": 0,
+      "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Application type mismatch: The argument\\n  hnn\\nhas type\\n  ∀ i ∈ Finset.range n, 0 ≤ ↑(a i)\\nbut is expected to have type\\n  n = 1\\nin the application\\n  h hnn\",\"endPos\":{\"column\":576,\"line\":13},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"[anonymous]\",\"pos\":{\"column\":573,\"line\":13},\"severity\":\"error\"},{",
+      "stmt": "∀ (a : ℕ → NNReal) (n : ℕ) (h₀ : Finset.prod (Finset.range n) a = 1), Finset.sum (Finset.range n) a ≥ n"
+    },
+    {
+      "target": "algebra_sqineq_36azm9asqle36zsq",
+      "index": 2,
+      "old_reason": "exception",
+      "new_reason": "ok",
+      "new_ok": true,
+      "goals_left": 0,
+      "detail": "",
+      "stmt": "∀ (z a : ℝ), 36 * (a * z) - 9 * a ^ 2 ≤ 36 * z ^ 2"
+    },
+    {
+      "target": "amc12_2001_p9",
+      "index": 2,
+      "old_reason": "exception",
+      "new_reason": "ok",
+      "new_ok": true,
+      "goals_left": 0,
+      "detail": "",
+      "stmt": "∀ (f : ℝ → ℝ) (h₀ : ∀ x > 0, ∀ y > 0, f (x * y) = f x / y) (h₁ : f 500 = 3), f 600 = 5 / 2"
+    },
+    {
+      "target": "amc12a_2008_p2",
+      "index": 0,
+      "old_reason": "exception",
+      "new_reason": "ok",
+      "new_ok": true,
+      "goals_left": 0,
+      "detail": "",
+      "stmt": "∀ (x : ℝ) (h₀ : x * (1 / 2 + 2 / 3) = 1), x = 6 / 7"
+    },
+    {
+      "target": "amc12a_2010_p22",
+      "index": 0,
+      "old_reason": "exception",
+      "new_reason": "unclosed_goals",
+      "new_ok": false,
+      "goals_left": 0,
+      "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"unsolved goals\\ncase neg\\nx : ℝ\\nhx : ¬x ≤ 0\\n⊢ 49 ≤ ∑ k ∈ Finset.Icc 1 119, |↑k * x - 1|\",\"endPos\":{\"column\":8,\"line\":5},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"Tactic.unsolvedGoals\",\"pos\":{\"column\":6,\"line\":1},\"severity\":\"error\"}]}}",
+      "stmt": "∀ (x : ℝ), 49 ≤ ∑ k ∈ (Finset.Icc (1:ℤ) (119:ℤ)), abs (k * x - 1)"
+    }
+  ]
+}

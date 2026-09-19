@@ -59,7 +59,7 @@ def dependencies (stmt proof : String) (target : String := "") : TacticM Depende
       -- `evalTacticStrNoFinalCheck` 只会执行**第一行**（P1.1 踩过的坑，本模块的
       -- 离线测试当场抓出来了：`intro a b` 之后 `exact Nat.add_comm a b` 根本没跑）。
       let action := MCTS.wrapProofScriptAsTactic (normalizeNewlines proof)
-      match ← evalTacticStrNoFinalCheck ctx action defaultHeartbeats with
+      match ← evalTacticStrNoFinalCheck ctx action (← getHeartbeats) with
       | .error _ => pure #[]
       | .ok _ =>
         let term ← instantiateMVars (mkMVar obligation.mvarId!)

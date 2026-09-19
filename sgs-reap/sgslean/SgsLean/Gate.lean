@@ -50,7 +50,7 @@ def check (stmt : String) : TacticM GateResult := do
   let normalized := normalizeStmt stmt
   withoutModifyingState do
     let ctx ← mkProofCheckContext
-    let result ← evalTacticStrNoFinalCheck ctx (probeAction text) defaultHeartbeats
+    let result ← evalTacticStrNoFinalCheck ctx (probeAction text) (← getHeartbeats)
     match result with
     | .error err =>
       return {

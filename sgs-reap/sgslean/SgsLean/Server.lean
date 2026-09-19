@@ -40,8 +40,26 @@ open Lean
 
 namespace SgsLean.Server
 
-/-- 协议版本。 -/
-def protocolVersion : String := "v1"
+/-- 协议版本。
+
+v1.2：`ping` 回报实际生效的判定预算（心跳 / 秒杀心跳 / 单 tactic 墙钟），
+子进程的 `maxHeartbeats` 与 `reap.timeout` 由环境变量注入。
+起因：miniF2F 的 G1 里 74% 的失败是 `exception`，必须能不改代码地把预算放大来分离
+"模型证不出"与"预算掐死"（见 `docs/phase18-log.md`）。 -/
+def protocolVersion : String := "v1.2"
+
+/-- 读一个 Nat 型环境变量，解析失败或缺失则退回默认值。 -/
+def envNat (name : String) (fallback : Nat) : IO Nat := do
+  match ← IO.getEnv name with
+  | some raw => return (raw.trimAscii.toString.toNat?).getD fallback
+  | none => return fallback
+
+/-- 子进程判定心跳的默认值（与 `SgsLean.defaultHeartbeats` 保持一致）。 -/
+def defaultHeartbeats : Nat := 4000000
+/-- 秒杀心跳的默认值（与 `SgsLean.Trivial.defaultHeartbeats` 保持一致）。 -/
+def defaultTrivialHeartbeats : Nat := 200000
+/-- 单 tactic 墙钟上限的默认值（毫秒，与 reap 的 `reap.timeout` 默认一致）。 -/
+def defaultTacticTimeoutMs : Nat := 200000
 
 /-- 工作目录里的三个文件（片段固定用相对名，父进程把 `cwd` 设为工作目录）。 -/
 def snippetFileName : String := "sgslean_snippet.lean"
@@ -86,7 +104,11 @@ def environmentInfo : TacticM Json := do
     ("status", toJson "ok"),
     ("version", toJson protocolVersion),
     ("importedModules", toJson env.header.moduleNames.size),
-    ("mathlib", toJson (env.header.moduleNames.any (fun n => n == `Mathlib)))]
+    ("mathlib", toJson (env.header.moduleNames.any (fun n => n == `Mathlib))),
+    -- 判定预算也回报：G1/诊断的结论必须能带上"用的是哪个预算"，否则数字不可比。
+    ("heartbeats", toJson (← getHeartbeats)),
+    ("trivialHeartbeats", toJson (← Trivial.getTrivialHeartbeats)),
+    ("tacticTimeoutMs", toJson (reap.timeout.get (← getOptions)))]
 
 /-- 处理一条请求 → 一条响应。任何内部失败都变成 `internal_error`，不向外抛。 -/
 def handleJob (job : Json) : TacticM Json := do
@@ -155,8 +177,8 @@ end
 
 /-! ## 父进程侧：片段生成、子进程调度、主循环 -/
 
-/-- 片段源码：**内容固定**（import 头由环境配置决定，请求数据永不参与拼字符串）。 -/
-def snippetSource (imports : String) : String :=
+/-- 片段源码：**内容固定**（import 头与判定预算由环境配置决定，请求数据永不参与拼字符串）。 -/
+def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) : String :=
   let mods := parseImports imports
   -- 没有 Mathlib 时要自己补 `ℕ` 记法；有 Mathlib 时**不能**补（重复声明 termℕ 是硬错误）
   let notationPatch := if mods.contains "Mathlib" then #[] else #["import SgsLean.Syntax"]
@@ -168,7 +190,12 @@ def snippetSource (imports : String) : String :=
     "open Lean Meta Elab Tactic",
     "set_option autoImplicit true",
     "set_option Elab.async false",
-    "set_option maxHeartbeats 4000000",
+    -- 检查器（`core`）不会认出上面的 `set_option` 是数据，所以必须逐个拼出来；
+    -- 这两个值来自环境变量，缺省与库里的默认常量一致。
+    s!"set_option maxHeartbeats {heartbeats}",
+    -- 单 tactic 的墙钟上限：Mathlib 级 tactic 在解释执行下偶发很慢，
+    -- 心跳管住 CPU 预算、墙钟兜住 IO/解释器开销，两者要一起调。
+    s!"set_option reap.timeout {tacticTimeoutMs}",
     "example : True := by",
     "  run_tac SgsLean.Server.runJobs"] ++ linterPatch ++ #[
     "  trivial",
@@ -190,7 +217,9 @@ def prepareWorkDir : IO System.FilePath := do
   IO.FS.createDirAll dir
   IO.FS.writeFile (dir / "lean-toolchain") ((← projectToolchain) ++ "\n")
   let imports := (← IO.getEnv "SGSLEAN_IMPORTS").getD defaultImports
-  IO.FS.writeFile (dir / snippetFileName) (snippetSource imports)
+  let heartbeats ← envNat "SGSLEAN_HEARTBEATS" defaultHeartbeats
+  let tacticTimeoutMs ← envNat "SGSLEAN_TACTIC_TIMEOUT_MS" defaultTacticTimeoutMs
+  IO.FS.writeFile (dir / snippetFileName) (snippetSource imports heartbeats tacticTimeoutMs)
   -- 用脚本文件承载重定向：`cmd /c` 的参数里带空格/重定向符时，Lean 的 spawn 会加引号，
   -- 实测传过去就不是 cmd 想要的语法（exit=1、日志也没生成）。写进 .cmd 最稳。
   IO.FS.writeFile (dir / childCmdFileName)

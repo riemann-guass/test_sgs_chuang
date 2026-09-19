@@ -43,8 +43,22 @@ deriving ToJson, Repr, Inhabited
 
 namespace Trivial
 
-/-- 秒杀预算（千次心跳）。比 `Verify` 的默认预算紧一档：平凡判定本来就该便宜。 -/
+/-- 秒杀预算的**默认值**（千次心跳）。比 `Verify` 的默认预算紧一档：平凡判定本来就该便宜。
+
+运行时可被环境变量 `SGSLEAN_TRIVIAL_HEARTBEATS` 覆盖——这个预算是"非平凡"判据的定义本身
+（"在预算 B 内解不出就算非平凡"），标定 B 时必须在报告里写明用的是哪个值。 -/
 def defaultHeartbeats : Nat := 200000
+
+/-- 运行时秒杀预算；读不到环境变量则退回 `defaultHeartbeats`。 -/
+initialize trivialHeartbeatsRef : IO.Ref Nat ← do
+  let value ← match (← IO.getEnv "SGSLEAN_TRIVIAL_HEARTBEATS") with
+    | some raw => pure ((raw.trimAscii.toString.toNat?).getD defaultHeartbeats)
+    | none => pure defaultHeartbeats
+  IO.mkRef value
+
+/-- 读取当前批的秒杀预算（泛化到任意可提升 IO 的 monad）。 -/
+def getTrivialHeartbeats {m : Type → Type} [Monad m] [MonadLiftT IO m] : m Nat :=
+  liftM (m := IO) trivialHeartbeatsRef.get
 
 /-- 依次尝试的 tactic（顺序 = 从便宜到贵）。 -/
 def probes : Array String := #["decide", "simp", "aesop"]
@@ -55,7 +69,7 @@ private def closesGoal (ty : Expr) (tactic : String) : TacticM Bool := do
     let obligation ← mkFreshExprSyntheticOpaqueMVar ty
     setGoals [obligation.mvarId!]
     let ctx ← mkProofCheckContext
-    match ← evalTacticStrNoFinalCheck ctx tactic defaultHeartbeats with
+    match ← evalTacticStrNoFinalCheck ctx tactic (← getTrivialHeartbeats) with
     | .error _ => return false
     | .ok _ => return (← getUnsolvedGoals).isEmpty
 
