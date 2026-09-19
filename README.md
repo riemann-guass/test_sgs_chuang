@@ -45,7 +45,7 @@ SGS 的训练期自博弈**搬不进 tactic**——tactic 活在单次 elaborati
 | P0 | 接口契约、假服务、Lean 猜想客户端、真实模型代理 | M0 / M1 | ✅ M0 通过；M1 利用率 90%，**Guide 占 98% completion token**（H2 要改的对象） |
 | P1 | `sgslean` 包：Gate/Verify、stdio JSON 服务、`/solve`、轨迹落盘、Mathlib 工程 | **G1** | ✅ **通过**：63 条引理 × k=3，mean solve_rate 0.873、非零解占比 98.4% |
 | P2 | 轨迹层（子目标签名 v1.1 = 上下文 ⊢ 目标）、需求挖掘 `d(g)=freq×cost` | **G2** | ✅ **通过**：4 条跨目标需求签名 |
-| P3 | 非平凡 / 新颖 / 压缩 / 覆盖 + 引理库（子模选择） | G3 | 🚧 进行中 |
+| P3 | 非平凡 / 新颖 / 压缩 / 覆盖 + 引理库（子模选择）+ 物化 | **G3** | ✅ **通过**：子模性 0 违例、贪心比 1.000 ≥ 0.632；物化文件可编译 |
 | P4 | 闭环与三组对照（SGS 式 Guide / 形式化价值 / 无库） | G4 | ⬜ |
 | P5 | 审计、统计、写作 | — | ⬜ |
 | P6 | 结题交付（上游 diff、数据卡） | — | ⬜ |
@@ -98,6 +98,8 @@ python tests\run_gate_g1.py --dry-run --limit 12    # G1 harness（真跑要先�
 | G1（63 条 × k=3） | 188 篇候选 / 164 通过；API 63 次调用、51 s；Lean 4 批 ≈8.9 min |
 | G1 失败原因构成 | `mvar_or_sorry` 12（模型吐 `sorry` 类证明，6.4%）、`type_error` 11、`unclosed_goals` 1 |
 | G2（38 条轨迹，签名 v1.1） | 39 个签名 / 4 条需求；trace 3 批 ≈6.5 min |
+| G3（35 目标 / 39 签名） | 子模性违例 0/500；贪心 = 最优（比 1.000 ≥ 0.632 界）；代理 0 次 Lean 调用 |
+| 物化（3 条引理） | 生成 `sgslean/generated/Library.lean` 并**编译通过**（75.5 s） |
 
 ## 不可动的约定
 

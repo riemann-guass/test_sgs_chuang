@@ -1,11 +1,11 @@
 {
-  "elapsed_s": 135.45,
-  "frontend_ms": 67009,
-  "per_request_ms": 4188.1,
-  "requests": 19,
-  "batched_requests": 16,
+  "elapsed_s": 35.63,
+  "frontend_ms": 16683,
+  "per_request_ms": 1283.3,
+  "requests": 16,
+  "batched_requests": 13,
   "immediate_errors": 2,
-  "stdout_lines": 20,
+  "stdout_lines": 17,
   "stderr_nonempty": false,
   "stderr_head": "",
   "failures": [],
@@ -13,8 +13,8 @@
     {
       "id": "ping",
       "result": {
-        "importedModules": 9867,
-        "mathlib": true,
+        "importedModules": 2078,
+        "mathlib": false,
         "status": "ok",
         "version": "v1"
       }
@@ -44,7 +44,7 @@
     {
       "id": "check_proof_term",
       "result": {
-        "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"type expected, got\\n  (fun h => h.right : True ∧ True → True)\",\"endPos\":{\"column\":20,\"line\":3},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"[anonymous]\",\"pos\":{\"column\":3,\"line\":2},\"severity\":\"error\"}]}}",
+        "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"type expected, got\\n  (fun h => h.right : True ∧ True → True)\",\"endPos\":{\"column\":13,\"line\":3},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"[anonymous]\",\"pos\":{\"column\":18,\"line\":1},\"severity\":\"error\"}]}}",
         "elaboratedType": "",
         "isProp": false,
         "ok": false,
@@ -66,7 +66,7 @@
     {
       "id": "check_unknown",
       "result": {
-        "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `NotARealType`\",\"endPos\":{\"column\":0,\"line\":3},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean.unknownIdentifier._namedError\",\"pos\":{\"column\":3,\"line\":2},\"severity\":\"error\"}]}}",
+        "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `NotARealType`\",\"endPos\":{\"column\":8,\"line\":2},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean.unknownIdentifier._namedError\",\"pos\":{\"column\":18,\"line\":1},\"severity\":\"error\"}]}}",
         "elaboratedType": "",
         "isProp": false,
         "ok": false,
@@ -113,7 +113,7 @@
     {
       "id": "verify_unclosed",
       "result": {
-        "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"unsolved goals\\nn : ℕ\\n⊢ n + 0 = n\",\"endPos\":{\"column\":3,\"line\":2},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"Tactic.unsolvedGoals\",\"pos\":{\"column\":6,\"line\":1},\"severity\":\"error\"}]}}",
+        "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"unsolved goals\\nn : ℕ\\n⊢ n + 0 = n\",\"endPos\":{\"column\":18,\"line\":1},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"Tactic.unsolvedGoals\",\"pos\":{\"column\":6,\"line\":1},\"severity\":\"error\"}]}}",
         "finalChecked": false,
         "gateOk": true,
         "goalsLeft": 0,
@@ -125,48 +125,13 @@
     {
       "id": "verify_bad",
       "result": {
-        "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"numerals are data in Lean, but the expected type is a proposition\\n  n + 0 = n : Prop\",\"endPos\":{\"column\":13,\"line\":2},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"[anonymous]\",\"pos\":{\"column\":12,\"line\":2},\"severity\":\"error\"}]}}",
+        "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"numerals are data in Lean, but the expected type is a proposition\\n  n + 0 = n : Prop\",\"endPos\":{\"column\":6,\"line\":2},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"[anonymous]\",\"pos\":{\"column\":5,\"line\":2},\"severity\":\"error\"}]}}",
         "finalChecked": false,
         "gateOk": true,
         "goalsLeft": 0,
         "ok": false,
         "reason": "type_error",
         "stmt": "∀ (n : Nat), n + 0 = n"
-      }
-    },
-    {
-      "id": "check_mathlib_symbol",
-      "result": {
-        "detail": "",
-        "elaboratedType": "∀ (n : ℕ), Even (n * (n + 1))",
-        "isProp": true,
-        "ok": true,
-        "reason": "ok",
-        "stmt": "∀ (n : Nat), Even (n * (n + 1))"
-      }
-    },
-    {
-      "id": "verify_ring",
-      "result": {
-        "detail": "",
-        "finalChecked": true,
-        "gateOk": true,
-        "goalsLeft": 0,
-        "ok": true,
-        "reason": "ok",
-        "stmt": "∀ (x y : ℝ), (x + y) ^ 2 = x ^ 2 + 2 * x * y + y ^ 2"
-      }
-    },
-    {
-      "id": "verify_omega_fails",
-      "result": {
-        "detail": "\"assignedProofHasMVarOrSorry\"",
-        "finalChecked": false,
-        "gateOk": true,
-        "goalsLeft": 0,
-        "ok": false,
-        "reason": "mvar_or_sorry",
-        "stmt": "∀ (n : Nat), 3 ∣ n ^ 3 + 2 * n"
       }
     }
   ]

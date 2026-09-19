@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-09-19T11:49:49.252696+00:00",
+  "generated_at": "2026-09-19T12:55:31.424003+00:00",
   "mode": "dry-run",
   "imports": "(server default)",
   "lemmas": 38,
   "traces": 38,
   "timing": {
-    "frontend_total_ms": 389365,
-    "total_s": 400.6
+    "frontend_total_ms": 235741,
+    "total_s": 246.2
   },
   "mining": {
     "min_targets": 2,

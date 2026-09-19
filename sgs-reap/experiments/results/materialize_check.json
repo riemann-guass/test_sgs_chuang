@@ -1,0 +1,14 @@
+{
+  "limit": 3,
+  "verified_entries": 3,
+  "rejected": [],
+  "output": "sgslean\\generated\\Library.lean",
+  "names": [
+    "sgs_lem_1",
+    "sgs_lem_2",
+    "sgs_lem_3"
+  ],
+  "compile_ok": true,
+  "compile_seconds": 75.5,
+  "compile_head": ""
+}

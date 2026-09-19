@@ -130,6 +130,14 @@ def handleJob (job : Json) : TacticM Json := do
         let target := (job.getObjValAs? String "target").toOption.getD ""
         return okResponse id (toJson (← Measure.dependencies stmt proof target))
       | _, _ => return errResponse id "invalid_params" "dependencies 需要字符串字段 stmt 与 proof"
+    | "materialize" =>
+      match (job.getObjValAs? String "path").toOption,
+            (job.getObjValAs? (Array LemmaEntry) "entries").toOption with
+      | some path, some entries =>
+        let imports := (← IO.getEnv "SGSLEAN_IMPORTS").getD defaultImports
+        let result ← Materialize.emit path entries (parseImports imports |>.foldl (fun acc m => if acc.isEmpty then m else acc ++ " " ++ m) "")
+        return okResponse id (toJson result)
+      | _, _ => return errResponse id "invalid_params" "materialize 需要 path 与 entries"
     | _ => return errResponse id "bad_request" s!"unknown cmd: {repr cmd}"
   catch ex =>
     return errResponse id "internal_error" (← ex.toMessageData.toString)

@@ -1,13 +1,13 @@
 {
-  "traces": "experiments\\runs\\g2_20260919T114308Z\\traces.jsonl",
-  "targets": 35,
-  "candidate_pool": 39,
+  "traces": "experiments\\runs\\g2_20260919T124956Z\\traces.jsonl",
+  "targets": 13,
+  "candidate_pool": 13,
   "submodularity_violations": 0,
   "greedy": {
     "chosen": [
-      "P : Prop, Q : Prop, h : P ∧ Q ⊢ P",
-      "P : Prop, h : P ⊢ P",
-      "a : ℕ ⊢ a + a = 2 * a"
+      "a : ℕ ⊢ a + a = 2 * a",
+      "a : ℕ, b : ℕ ⊢ a * b = b * a",
+      "a : ℕ, b : ℕ ⊢ a + b = b + a"
     ],
     "gains": [
       1,
@@ -22,7 +22,7 @@
   "dependency_cover_covered": 3,
   "cost": {
     "sig_cover_lean_calls": 0,
-    "dependency_cover_lean_calls": 35,
+    "dependency_cover_lean_calls": 13,
     "note": "代理只读已落盘轨迹；可信版需要对每个目标跑一次 Measure.dependencies"
   },
   "verdict": "pass",

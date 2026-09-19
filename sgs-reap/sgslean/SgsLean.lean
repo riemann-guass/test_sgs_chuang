@@ -8,3 +8,4 @@ public meta import SgsLean.Trivial
 public meta import SgsLean.Novelty
 public meta import SgsLean.Measure.Compression
 public meta import SgsLean.Measure.Dependency
+public meta import SgsLean.Materialize
