@@ -106,6 +106,8 @@ def main() -> int:
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--imports", default=None, help="覆盖 SGSLEAN_IMPORTS")
+    parser.add_argument("--file", default=str(DATA / "lemmas_g1.jsonl"),
+                        help="引理集文件（默认 G1 初等引理集；miniF2F 用 data/miniF2F_*.jsonl）")
     args = parser.parse_args()
 
     if args.imports is not None:
@@ -114,7 +116,7 @@ def main() -> int:
 
     lemmas = [
         json.loads(line)
-        for line in (DATA / "lemmas_g1.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in Path(args.file).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     if args.limit:
@@ -138,7 +140,8 @@ def main() -> int:
                 "id": lemma["id"],
                 "domain": lemma.get("domain"),
                 "statement": lemma["statement"],
-                "reference_proof": lemma["reference_proof"],
+                # miniF2F 一类没有参考证明的数据集也要能跑（真跑模式不用参考证明）
+                "reference_proof": lemma.get("reference_proof", ""),
                 "proofs": proofs,
                 "solve_meta": meta,
                 "solve_latency_s": round(time.perf_counter() - t0, 2),
@@ -248,9 +251,15 @@ def main() -> int:
         ],
     }
     RESULTS.mkdir(parents=True, exist_ok=True)
-    (RESULTS / "g1_solver_capability.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # 报告名带 mode/规模后缀，避免小规模重跑覆盖正式报告（phase15 踩过这个坑）
+    suffix = f"{'dryrun' if args.dry_run else 'real'}_k{args.k}_n{len(per_lemma)}"
+    report_path = RESULTS / f"g1_solver_capability_{suffix}.json"
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 只有"正式配置"（真跑 + 全量）才写规范名
+    if not args.dry_run and args.limit == 0:
+        (RESULTS / "g1_solver_capability.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     with (run_dir / "traces.jsonl").open("w", encoding="utf-8") as handle:
         for row in per_lemma:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -269,7 +278,7 @@ def main() -> int:
     )
     print(f"[g1] 分布直方图={report['histogram']} 失败原因={report['failure_reasons']}")
     print(f"[g1] 判定：{verdict}")
-    print(f"[g1] 轨迹：{run_dir / 'traces.jsonl'}；报告：{RESULTS / 'g1_solver_capability.json'}")
+    print(f"[g1] 轨迹：{run_dir / 'traces.jsonl'}；报告：{report_path}")
     if failures:
         print(f"[g1] FAIL，{len(failures)} 处：")
         for failure in failures:
