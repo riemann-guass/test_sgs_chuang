@@ -111,6 +111,12 @@ def handleJob (job : Json) : TacticM Json := do
       match (job.getObjValAs? String "stmt").toOption with
       | some stmt => return okResponse id (toJson (← Trivial.isTrivial stmt))
       | none => return errResponse id "invalid_params" "trivial 需要字符串字段 stmt"
+    | "novelty" =>
+      match (job.getObjValAs? String "stmt").toOption with
+      | none => return errResponse id "invalid_params" "novelty 需要字符串字段 stmt"
+      | some stmt =>
+        let against := (job.getObjValAs? (Array String) "against").toOption.getD #[]
+        return okResponse id (toJson (← Novelty.isNew stmt against))
     | _ => return errResponse id "bad_request" s!"unknown cmd: {repr cmd}"
   catch ex =>
     return errResponse id "internal_error" (← ex.toMessageData.toString)
