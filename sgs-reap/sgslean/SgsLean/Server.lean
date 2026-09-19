@@ -117,6 +117,13 @@ def handleJob (job : Json) : TacticM Json := do
       | some stmt =>
         let against := (job.getObjValAs? (Array String) "against").toOption.getD #[]
         return okResponse id (toJson (← Novelty.isNew stmt against))
+    | "compression" =>
+      match (job.getObjValAs? String "stmt").toOption,
+            (job.getObjValAs? String "longProof").toOption,
+            (job.getObjValAs? String "shortProof").toOption with
+      | some stmt, some longProof, some shortProof =>
+        return okResponse id (toJson (← Measure.compression stmt longProof shortProof))
+      | _, _, _ => return errResponse id "invalid_params" "compression 需要 stmt/longProof/shortProof"
     | _ => return errResponse id "bad_request" s!"unknown cmd: {repr cmd}"
   catch ex =>
     return errResponse id "internal_error" (← ex.toMessageData.toString)
