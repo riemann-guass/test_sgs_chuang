@@ -124,6 +124,12 @@ def handleJob (job : Json) : TacticM Json := do
       | some stmt, some longProof, some shortProof =>
         return okResponse id (toJson (← Measure.compression stmt longProof shortProof))
       | _, _, _ => return errResponse id "invalid_params" "compression 需要 stmt/longProof/shortProof"
+    | "dependencies" =>
+      match (job.getObjValAs? String "stmt").toOption, (job.getObjValAs? String "proof").toOption with
+      | some stmt, some proof =>
+        let target := (job.getObjValAs? String "target").toOption.getD ""
+        return okResponse id (toJson (← Measure.dependencies stmt proof target))
+      | _, _ => return errResponse id "invalid_params" "dependencies 需要字符串字段 stmt 与 proof"
     | _ => return errResponse id "bad_request" s!"unknown cmd: {repr cmd}"
   catch ex =>
     return errResponse id "internal_error" (← ex.toMessageData.toString)

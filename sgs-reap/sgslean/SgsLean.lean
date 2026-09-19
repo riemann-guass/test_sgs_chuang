@@ -7,3 +7,4 @@ public meta import SgsLean.Trace
 public meta import SgsLean.Trivial
 public meta import SgsLean.Novelty
 public meta import SgsLean.Measure.Compression
+public meta import SgsLean.Measure.Dependency
