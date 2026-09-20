@@ -10,7 +10,7 @@
       "passed_hard_gates": 2,
       "verified": 0,
       "library_written": 0,
-      "timing_s": 55.5
+      "timing_s": 55.6
     },
     {
       "round": 1,
@@ -21,10 +21,10 @@
       "passed_hard_gates": 2,
       "verified": 0,
       "library_written": 0,
-      "timing_s": 55.3
+      "timing_s": 55.4
     }
   ],
   "curriculum": "data\\lemmas_g1.jsonl",
-  "total_s": 110.8,
+  "total_s": 111.0,
   "library_after": []
 }

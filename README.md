@@ -36,7 +36,7 @@ SGS 的训练期自博弈**搬不进 tactic**——tactic 活在单次 elaborati
 * **H2**：以压缩 + 覆盖为价值的形式化选择（N2/N3），在同一预算下比 SGS 的 **LLM Guide 打分**
   产生在 held-out 上更有用的库（pass@k 更高）。
 
-对照必须公平：`service/` 里的 `/guide`、GuideClient 与 rubric **原样保留**，它是 H2 的对照组。
+对照必须公平：`sgsr/models/` 里的 `/guide`、GuideClient 与 rubric **原样保留**，它是 H2 的对照组。
 
 ## 当前进度（闸门是停机点）
 
@@ -58,14 +58,19 @@ SGS 的训练期自博弈**搬不进 tactic**——tactic 活在单次 elaborati
 
 ```
 sgs-reap/
+├─ sgsr/          【Python 包】对应上游 SGS 的 sgs/ 布局
+│   ├─ data/          轨迹/需求的数据模式
+│   ├─ models/        模型服务：config/backend/prompts/proxy/mock_server（真代理与假服务）
+│   ├─ pipeline/      需求挖掘(N1)、猜想、引理库、覆盖度(N2)、**闭环编排 runner**
+│   ├─ verification/  Lean 服务常驻客户端
+│   └─ utils/         本地服务启动辅助
+├─ scripts/       实验入口（对应 SGS 的 scripts/）：闭环、各闸门、漏斗、诊断
+├─ sgslean/       【核心】Lean 实验库：Gate/Verify/Trivial/Novelty/Measure/Materialize/Trace/Server
 ├─ reap-fork/     reap 的本地 fork（只做极小 patch；上游 commit 在 docs/upstream.md 锁定）
-├─ sgslean/       【核心】Lean 实验库：Basic / Gate / Verify / Trace / Syntax / Server
-├─ service/       薄代理：/conjecture、/guide（H2 对照组）、/solve；假服务与诊断脚本
-├─ graph/         轨迹模式与需求挖掘（N1）；后续的库与覆盖度（N2）
-├─ data/          工作负载 W、held-out（不许进库构建）、G1 引理集
-├─ tests/         各闸门与链路的可复现脚本（Python 侧）
-├─ experiments/   每个闸门的报告与逐条轨迹（runs/ 是可再生产物）
-└─ docs/          方案、接口契约、实施蓝图、阶段日志（phase0–9）
+├─ tools/         一次性探针与数据集转换（结论已入 phase 日志）
+├─ data/          课程集 C、开发集 D（miniF2F valid）、测试集 T（miniF2F test）、G1 引理集
+├─ experiments/   闸门报告（results/ 入库）与逐条轨迹（runs/ 可再生产物，不入库）
+└─ docs/          方案、框架、数据协议、接口契约、实施蓝图、阶段日志、路径对照表
 ```
 
 ## 快速开始（离线可复现）
@@ -103,8 +108,10 @@ python tests\run_gate_g1.py --dry-run --limit 12    # G1 harness（真跑要先�
 
 ## 不可动的约定
 
-* 不删除任何现有文件；`/guide`、GuideClient、rubric 与 `probe_guide*.py` 是 H2 对照组，必须保留。
-* `reap-fork/.lake` 不删；`service/.env` 不入库；不得提交密钥。
+* `/guide`、GuideClient、rubric 与 `tools/probe_guide*.py` 是 H2 对照组，**必须保留**。
+* `reap-fork/.lake` 不删；`sgsr/models/.env` 不入库；不得提交密钥。
+* 数据角色（`docs/data-protocol.md`）：**建库只用课程集 C**，miniF2F valid 只用于调参，
+  test 只在冻结后跑一次；`scripts/run_round.py` 里有硬守卫。
 * 不做梯度训练；"课程变好"只能用固定 held-out 上的 pass@k 证明。
 * 闸门不过就按 `docs/proposal.md` 的预案降级，不擅自换主线。
 

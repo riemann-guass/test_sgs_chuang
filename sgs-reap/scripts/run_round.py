@@ -1,0 +1,148 @@
+"""跑 SG-Lean 的闭环（多轮）。命令行入口，编排逻辑全在 `sgsr/pipeline/runner.py`。
+
+用法：
+
+    # 离线冒烟（假服务）：验证闭环能转起来
+    python scripts\run_round.py --rounds 2 --target-limit 3 --k 1 --n 2 --expect-mock
+
+    # 真跑（先起 MODELS\\proxy.py，需网络权限）
+    python scripts\run_round.py --rounds 5 --k 3 --n 3
+
+**数据角色（`docs/data-protocol.md`，这里用代码强制）**：
+
+* `--curriculum`：建库用的课程集，**只有它可以进库**。默认用我们自建的初等引理集
+  （`data/lemmas_g1.jsonl`），它完全与 miniF2F 无关。
+* `--dev`：调参用（miniF2F **valid**）。本脚本**不读它**——调参在
+  `scripts/run_gate_g3_real.py --select ...` 里做。
+* `--test`：最终评测（miniF2F **test**）。**本脚本拒绝接受 miniF2F 作为 curriculum**：
+  拿测试集建库再在测试集上测，结论是自我循环的（phase19–22 踩过这个坑）。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8")
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from sgsr.pipeline.runner import (  # noqa: E402
+    ROLE_CURRICULUM,
+    DataRoleError,
+    RoundConfig,
+    RoundRunner,
+    TargetSet,
+    summarize,
+)
+from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
+
+DATA = ROOT / "data"
+RESULTS = ROOT / "experiments" / "results"
+RUNS = ROOT / "experiments" / "runs"
+DEFAULT_LIBRARY = ROOT / "experiments" / "library.jsonl"
+DEFAULT_GENERATED = ROOT / "sgslean" / "SgsLean" / "GeneratedLibrary.lean"
+
+
+def make_factory(imports: str):
+    """Lean 服务工厂：每次调用按批大小给足心跳（心跳是按 command 累计的，见 lean_server.py）。"""
+
+    def factory(n_jobs: int = 8):
+        return LeanServer(
+            imports=imports,
+            heartbeats=budget_for_jobs(n_jobs),
+            stderr_path=RESULTS / "round_stderr.log",
+        )
+
+    return factory
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="SG-Lean 闭环（多轮）")
+    parser.add_argument("--curriculum", default=str(DATA / "lemmas_g1.jsonl"),
+                        help="课程集 C：唯一允许进库的数据")
+    parser.add_argument("--rounds", type=int, default=2)
+    parser.add_argument("--target-limit", type=int, default=0, help="本轮用多少条 C 目标（0=全部）")
+    parser.add_argument("--k", type=int, default=3, help="每条候选让 Solver 出几篇证明")
+    parser.add_argument("--n", type=int, default=3, help="每个目标让 Conjecturer 出几条候选")
+    parser.add_argument("--library-budget", type=int, default=30, help="库容 B")
+    parser.add_argument("--library", default=str(DEFAULT_LIBRARY))
+    parser.add_argument("--generated", default=str(DEFAULT_GENERATED))
+    parser.add_argument("--solve-endpoint", default="http://127.0.0.1:8765/solve")
+    parser.add_argument("--conjecture-endpoint", default="http://127.0.0.1:8765/conjecture")
+    parser.add_argument("--imports", default="Mathlib")
+    parser.add_argument("--reset-library", action="store_true",
+                        help="开始前清空库（离线冒烟用；真跑慎用）")
+    parser.add_argument("--expect-mock", action="store_true",
+                        help="显式声明用的是假服务（仅用于离线冒烟，会写进报告文件名）")
+    args = parser.parse_args()
+
+    curriculum_path = Path(args.curriculum)
+    # ── 数据角色守卫：不许拿测试集/开发集建库 ──
+    if "minif2f" in curriculum_path.name.lower():
+        print(f"[round] 拒绝：`{curriculum_path.name}` 是 miniF2F（开发/测试集）。")
+        print("        按 docs/data-protocol.md，建库只能用课程集 C；")
+        print("        miniF2F valid 用于调参（scripts/run_gate_g3_real.py --select），test 只用于最终评测。")
+        return 2
+
+    curriculum = TargetSet.load(ROLE_CURRICULUM, curriculum_path)
+    library_path = Path(args.library)
+    generated_path = Path(args.generated)
+    if args.reset_library and library_path.exists():
+        library_path.unlink()
+        print(f"[round] 已清空库：{library_path}")
+
+    config = RoundConfig(
+        solve_endpoint=args.solve_endpoint,
+        conjecture_endpoint=args.conjecture_endpoint,
+        imports=args.imports,
+        k_solve=args.k,
+        n_conjecture=args.n,
+        library_budget=args.library_budget,
+        target_limit=args.target_limit,
+    )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = RUNS / f"round_{'mock' if args.expect_mock else 'real'}_{stamp}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    runner = RoundRunner(
+        curriculum=curriculum,
+        config=config,
+        workdir=run_dir,
+        library_path=library_path,
+        generated_path=generated_path,
+        lean_server_factory=make_factory(args.imports),
+    )
+
+    started = time.perf_counter()
+    try:
+        reports = runner.run(args.rounds, on_round=lambda r: (run_dir / f"round_{r.round_index}.json")
+                             .write_text(json.dumps(r.to_dict(), ensure_ascii=False, indent=2),
+                                         encoding="utf-8"))
+    except DataRoleError as exc:
+        print(f"[round] 数据角色错误：{exc}")
+        return 2
+    summary = summarize(reports)
+    summary["curriculum"] = str(curriculum_path.relative_to(ROOT))
+    summary["total_s"] = round(time.perf_counter() - started, 1)
+    summary["library_after"] = reports[-1].library_after if reports else []
+
+    out_path = RESULTS / f"rounds_{'mock' if args.expect_mock else 'real'}_{args.rounds}.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print(f"[round] 完成 {len(reports)} 轮；库 {len(summary['library_after'])} 条；"
+          f"总耗时 {summary['total_s']}s")
+    for row in summary["per_round"]:
+        print(f"        round {row['round']}: 解出 {row['targets_solved']}；候选 {row['candidates']}；"
+              f"过硬门 {row['passed_hard_gates']}；验证通过 {row['verified']}；入库 {row['library_written']}")
+    print(f"[round] 报告 {out_path}；逐轮 {run_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

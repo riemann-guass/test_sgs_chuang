@@ -88,17 +88,18 @@ W（工作负载）必须含**近失手**目标（0 < solve_rate < 1）——
 
 | 框架 | 实现 | 状态 |
 |---|---|---|
-| Solver（整篇证明） | `service/proxy.py` `/solve` | ✅ |
-| Conjecturer（含需求/库范例注入） | `service/prompts.py` + `graph/conjecture.py` | ✅ |
-| 需求挖掘 | `graph/demand.py` | ✅（只在初等引理集上挖过） |
+| Solver（整篇证明） | `sgsr/models/proxy.py` `/solve` | ✅ |
+| Conjecturer（含需求/库范例注入） | `sgsr/models/prompts.py` + `sgsr/pipeline/conjecture.py` | ✅ |
+| 需求挖掘 | `sgsr/pipeline/demand.py` | ✅（只在初等引理集上挖过） |
 | 门检 | `SgsLean/Gate.lean` | ✅ |
 | 硬门三件 | `SgsLean/{Trivial,Novelty,Verify}.lean` | ✅ |
 | 软分两件 | `SgsLean/Measure/*.lean` | ✅ 已实现，**未接线** |
 | 相关度 | Python 文本符号重叠 | ⚠️ 代理，正式版应在 Lean 侧抽常量集合 |
-| 物化 + 库 | `SgsLean/Materialize.lean` + `graph/library.py` | ✅（4 条） |
-| cover + 选择 | `tests/run_gate_g3_real.py` + `graph/coverage.py` | ✅ 真定义；旧 `sig_cover` 已降级为旁证 |
+| 物化 + 库 | `SgsLean/Materialize.lean` + `sgsr/pipeline/library.py` | ✅（4 条） |
+| cover + 选择 | `scripts/run_gate_g3_real.py` + `sgsr/pipeline/coverage.py` | ✅ 真定义（两臂）；选择层用父目标覆盖代理 |
+| 闭环编排 | `sgsr/pipeline/runner.py` + `scripts/run_round.py` | ✅ 十步一环（phase23） |
 | 记忆注入 | `/solve` 的 `library` 字段 | ✅ |
-| **多轮闭环** | — | ❌ 未做（这是 H2 的前提） |
+| **多轮闭环** | `sgsr/pipeline/runner.py` | ✅ 已实现；**尚未按协议在 C 上跑正式多轮** |
 | 审计（形式化分量 vs 配对 Δ） | — | ❌ 未做 |
 
 ## 八、下一步的优先级（框架级）

@@ -1,7 +1,7 @@
 {
-  "elapsed_s": 35.63,
-  "frontend_ms": 16683,
-  "per_request_ms": 1283.3,
+  "elapsed_s": 34.74,
+  "frontend_ms": 15505,
+  "per_request_ms": 1192.7,
   "requests": 16,
   "batched_requests": 13,
   "immediate_errors": 2,
@@ -13,10 +13,13 @@
     {
       "id": "ping",
       "result": {
+        "heartbeats": 4000000,
         "importedModules": 2078,
         "mathlib": false,
         "status": "ok",
-        "version": "v1"
+        "tacticTimeoutMs": 200000,
+        "trivialHeartbeats": 200000,
+        "version": "v1.2"
       }
     },
     {
