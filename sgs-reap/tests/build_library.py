@@ -308,30 +308,7 @@ def main() -> int:
     written_names: list[str] = []
     compile_ok = None
     if verified:
-        entries = [
-            {"stmt": c["stmt"], "proof": c["proof"], "verified": True,
-             "source": f"cand:{c['key']}"}
-            for c in verified
-        ]
-        with LeanServer(imports=args.imports, heartbeats=budget_for_jobs(len(entries) + 1),
-                        stderr_path=RESULTS / "build_library_stderr.log") as server:
-            jobs = [{"id": "mat", "cmd": "materialize", "path": str(GENERATED), "entries": entries}]
-            responses = server.batch(jobs)
-        result = (responses.get("mat") or {}).get("result") or {}
-        written_names = list(result.get("names") or [])
-        funnel["materialized"] = int(result.get("written") or 0)
-        if not args.skip_compile and GENERATED.exists():
-            # 用模块目标（不是库目标，也不是 `lake env lean <file>`）：既做编译校验，
-            # 又产出 olean——阶段 D 的处理臂要靠 `import SgsLean.GeneratedLibrary` 拿到它。
-            proc = subprocess.run(
-                ["lake", "build", "SgsLean.GeneratedLibrary"],
-                cwd=str(ROOT / "sgslean"),
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-            )
-            compile_ok = proc.returncode == 0
-            if not compile_ok:
-                print("[lib] 物化文件编译失败（`lake build SgsLean.GeneratedLibrary` 非零退出）：")
-                print(((proc.stdout or "") + (proc.stderr or ""))[-1200:])
+        # 先把本次验证过的条目追加进库（`add_many` 按语句去重）
         written = add_many(
             library_path,
             [
@@ -341,6 +318,38 @@ def main() -> int:
             ],
         )
         funnel["library_written"] = written
+        # **物化整库，而不是只物化本次的新条目**：`Materialize.emit` 是**重写**整个文件，
+        # 只传新条目会让上一轮的引理从 `GeneratedLibrary.lean` 里消失，
+        # 而 Python 侧的 `library.jsonl` 还在——两边不一致，处理臂的"库可用"就成了假的。
+        full_library = [
+            json.loads(line)
+            for line in library_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        full_entries = [
+            {"stmt": row["stmt"], "proof": row["proof"], "verified": True,
+             "source": row.get("source", "library")}
+            for row in full_library
+        ]
+        with LeanServer(imports=args.imports, heartbeats=budget_for_jobs(len(full_entries) + 1),
+                        stderr_path=RESULTS / "build_library_stderr.log") as server:
+            responses = server.batch(
+                [{"id": "mat2", "cmd": "materialize", "path": str(GENERATED), "entries": full_entries}]
+            )
+        result2 = (responses.get("mat2") or {}).get("result") or {}
+        written_names = list(result2.get("names") or [])
+        funnel["materialized"] = int(result2.get("written") or 0)
+        funnel["library_size_after"] = int(result2.get("written") or 0)
+        if not args.skip_compile:
+            proc = subprocess.run(
+                ["lake", "build", "SgsLean.GeneratedLibrary"],
+                cwd=str(ROOT / "sgslean"),
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            compile_ok = proc.returncode == 0
+            if not compile_ok:
+                print("[lib] 物化文件编译失败（`lake build SgsLean.GeneratedLibrary` 非零退出）：")
+                print(((proc.stdout or "") + (proc.stderr or ""))[-1200:])
 
     elapsed = time.perf_counter() - started
     if funnel["candidates"] > 0 and funnel["rejected_gate"] == funnel["candidates"]:

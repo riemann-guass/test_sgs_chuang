@@ -1,0 +1,975 @@
+{
+  "generated_at": "2026-09-20T12:25:27.493799+00:00",
+  "endpoint": "http://127.0.0.1:8770/conjecture",
+  "mode": "demand",
+  "targets": 20,
+  "demand_sent": 4,
+  "seeds_sent": 4,
+  "n": 3,
+  "total_candidates": 60,
+  "gate_skipped": true,
+  "total_gate_ok": 0,
+  "targets_with_gate_ok": 0,
+  "total_gate_ok_and_relevant": 0,
+  "targets_with_relevant_candidate": 0,
+  "gate_reasons": {},
+  "reverse_check": null,
+  "verdict": "pass_plumbing_only",
+  "criterion": "≥一半目标各有 ≥1 条「过门检 ∧ 与目标符号相关」，且总数 ≥3 → pass",
+  "timing": {
+    "total_s": 24.2
+  },
+  "per_target": [
+    {
+      "target": "aime_1984_p5",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (a b : ℝ), Real.logb 8 a + Real.logb 4 (b ^ 2) = 5 → Real.logb 8 b + Real.logb 4 (a ^ 2) = 7 → Real.logb 8 a + Real.logb 8 b = 4",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.logb",
+            "a",
+            "b",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (a b : ℝ), Real.logb 8 a + Real.logb 4 (b ^ 2) = 5 → Real.logb 8 b + Real.logb 4 (a ^ 2) = 7 → Real.logb 4 (a ^ 2) + Real.logb 4 (b ^ 2) = 8",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.logb",
+            "a",
+            "b",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (a b : ℝ), Real.logb 8 a + Real.logb 4 (b ^ 2) = 5 → Real.logb 8 b + Real.logb 4 (a ^ 2) = 7 → Real.logb 8 a + Real.logb 8 b + Real.logb 4 (a ^ 2) + Real.logb 4 (b ^ 2) = 12",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.logb",
+            "a",
+            "b",
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "aime_1987_p8",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ n k : ℕ, 0 < n → (8 : ℝ) / 15 < n / (n + k) → (n : ℝ) / (n + k) < 7 / 13 → 0 < k",
+          "gate": "skipped",
+          "shared_symbols": [
+            "k",
+            "n",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ n k : ℕ, 0 < n → (8 : ℝ) / 15 < n / (n + k) → (n : ℝ) / (n + k) < 7 / 13 → 15 * n < 8 * (n + k) ∧ 13 * n < 7 * (n + k)",
+          "gate": "skipped",
+          "shared_symbols": [
+            "k",
+            "n",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ n k : ℕ, 0 < n → (8 : ℝ) / 15 < n / (n + k) → (n : ℝ) / (n + k) < 7 / 13 → 7 * n < 13 * (n + k) → 8 * (n + k) < 15 * n",
+          "gate": "skipped",
+          "shared_symbols": [
+            "k",
+            "n",
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "aime_1988_p3",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (x : ℝ) (h₀ : 0 < x), Real.logb 2 x = Real.logb 8 x * 3",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.logb",
+            "h",
+            "x",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (x : ℝ) (h₀ : 0 < x), Real.logb 8 x = Real.logb 2 x / 3",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.logb",
+            "h",
+            "x",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (x : ℝ) (h₀ : 0 < x), Real.logb 2 x = 3 * Real.logb 8 x",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.logb",
+            "h",
+            "x",
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "aime_1988_p4",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (n : ℕ) (a : ℕ → ℝ), (∑ k ∈ Finset.range n, abs (a k)) ≤ n",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.range",
+            "a",
+            "abs",
+            "k",
+            "n",
+            "ℝ",
+            "∑"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (n : ℕ) (a : ℕ → ℝ), abs (∑ k ∈ Finset.range n, a k) ≤ ∑ k ∈ Finset.range n, abs (a k)",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.range",
+            "a",
+            "abs",
+            "k",
+            "n",
+            "ℝ",
+            "∑"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (n : ℕ) (a : ℕ → ℝ) (h₁ : (∑ k ∈ Finset.range n, abs (a k)) = 19 + abs (∑ k ∈ Finset.range n, a k)), (∑ k ∈ Finset.range n, abs (a k)) ≤ n",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.range",
+            "a",
+            "abs",
+            "h",
+            "k",
+            "n",
+            "ℝ",
+            "∑"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "aime_1990_p2",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (a : ℝ), 0 ≤ a → Real.sqrt a ^ (3 : ℝ) = a * Real.sqrt a",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.sqrt",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (a b : ℝ), 0 ≤ a → 0 ≤ b → (a + b) ^ ((3 : ℝ) / 2) = (a + b) * Real.sqrt (a + b)",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.sqrt",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (a b : ℝ), 0 ≤ a → 0 ≤ b → (a * b) ^ ((3 : ℝ) / 2) = a * (b ^ ((3 : ℝ) / 2)) ∧ (a * b) ^ ((3 : ℝ) / 2) = b * (a ^ ((3 : ℝ) / 2))",
+          "gate": "skipped",
+          "shared_symbols": [
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "aime_1991_p6",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (r : ℝ), (∑ k ∈ Finset.Icc (19 : ℕ) 91, Int.floor (r + k / 100)) = 546 → 7.43 ≤ r ∧ r < 7.44",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.Icc",
+            "Int.floor",
+            "k",
+            "r",
+            "ℝ",
+            "∑"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (r : ℝ), (∑ k ∈ Finset.Icc (19 : ℕ) 91, Int.floor (r + k / 100)) = 546 → (∑ k ∈ Finset.Icc (19 : ℕ) 91, (k : ℝ) / 100) = 4015 / 100",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.Icc",
+            "Int.floor",
+            "k",
+            "r",
+            "ℝ",
+            "∑"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (r : ℝ) (m : ℤ), (∀ k ∈ Finset.Icc (19 : ℕ) 91, m ≤ Int.floor (r + k / 100)) → (∑ k ∈ Finset.Icc (19 : ℕ) 91, Int.floor (r + k / 100)) = 546 → (73 : ℤ) * m ≤ 546",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.Icc",
+            "Int.floor",
+            "k",
+            "r",
+            "ℝ",
+            "∑"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "aime_1994_p4",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (n : ℕ), (∑ k ∈ Finset.Icc 1 n, Int.floor (Real.logb 2 k)) = 1994 → n ≤ 312",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.Icc",
+            "Int.floor",
+            "Real.logb",
+            "k",
+            "n",
+            "∑"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (n : ℕ), (∑ k ∈ Finset.Icc 1 n, Int.floor (Real.logb 2 k)) = 1994 → 312 ≤ n",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.Icc",
+            "Int.floor",
+            "Real.logb",
+            "k",
+            "n",
+            "∑"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (n : ℕ), (∑ k ∈ Finset.Icc 1 n, Int.floor (Real.logb 2 k)) = 1994 → (∑ k ∈ Finset.Icc 1 312, Int.floor (Real.logb 2 k)) = (∑ k ∈ Finset.Icc 1 n, Int.floor (Real.logb 2 k))",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.Icc",
+            "Int.floor",
+            "Real.logb",
+            "k",
+            "n",
+            "∑"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "aimeI_2000_p7",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (x y z : ℝ) (m : ℚ), 0 < x → 0 < y → 0 < z → x * y * z = 1 → x + 1 / z = 5 → y + 1 / x = 29 → z + 1 / y = m → x * z = 1 / y",
+          "gate": "skipped",
+          "shared_symbols": [
+            "m",
+            "x",
+            "y",
+            "z",
+            "ℚ",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (x y z : ℝ) (m : ℚ), 0 < x → 0 < y → 0 < z → x * y * z = 1 → z + 1 / y = m → m = z + 1 / y",
+          "gate": "skipped",
+          "shared_symbols": [
+            "m",
+            "x",
+            "y",
+            "z",
+            "ℚ",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (x y z : ℝ) (m : ℚ), 0 < x → 0 < y → 0 < z → x * y * z = 1 → x + 1 / z = 5 → y + 1 / x = 29 → z + 1 / y = m → ↑m.den * (z + 1 / y) = ↑m.num",
+          "gate": "skipped",
+          "shared_symbols": [
+            "m",
+            "m.den",
+            "m.num",
+            "x",
+            "y",
+            "z",
+            "ℚ",
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "aimeII_2001_p3",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (x : ℕ → ℤ), x 1 = 211 → x 2 = 375 → x 3 = 420 → x 4 = 523 → (∀ n ≥ 5, x n = x (n - 1) - x (n - 2) + x (n - 3) - x (n - 4)) → x 5 = 467",
+          "gate": "skipped",
+          "shared_symbols": [
+            "n",
+            "x",
+            "ℤ",
+            "≥"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (x : ℕ → ℤ), x 1 = 211 → x 2 = 375 → x 3 = 420 → x 4 = 523 → (∀ n ≥ 5, x n = x (n - 1) - x (n - 2) + x (n - 3) - x (n - 4)) → x 531 = x 3",
+          "gate": "skipped",
+          "shared_symbols": [
+            "n",
+            "x",
+            "ℤ",
+            "≥"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (x : ℕ → ℤ), x 1 = 211 → x 2 = 375 → x 3 = 420 → x 4 = 523 → (∀ n ≥ 5, x n = x (n - 1) - x (n - 2) + x (n - 3) - x (n - 4)) → x 753 = x 1",
+          "gate": "skipped",
+          "shared_symbols": [
+            "n",
+            "x",
+            "ℤ",
+            "≥"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "algebra_2complexrootspoly_xsqp49eqxp7itxpn7i",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (x : ℂ), (x + 7 * Complex.I) * (x + -7 * Complex.I) = x ^ 2 + 49",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Complex.I",
+            "x",
+            "ℂ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (x : ℂ), x * (7 * Complex.I) + (7 * Complex.I) * x = 0",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Complex.I",
+            "x",
+            "ℂ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (x : ℂ), (7 * Complex.I) * (-7 * Complex.I) = 49",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Complex.I",
+            "x",
+            "ℂ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "algebra_amgm_faxinrrp2msqrt2geq2mxm1div2x",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ x : ℝ, 0 < x → 2 * Real.sqrt 2 ≤ x + 1 / x",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.sqrt",
+            "x"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ x : ℝ, 0 < x → Real.sqrt 2 ≤ (x + 1 / x) / 2",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.sqrt",
+            "x"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ x : ℝ, 0 < x → 2 - Real.sqrt 2 ≥ 2 - x - 1 / (2 * x) ↔ 2 * Real.sqrt 2 ≤ x + 1 / x",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.sqrt",
+            "x",
+            "≥"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "algebra_amgm_prod1toneq1_sum1tongeqn",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (a : ℕ → NNReal) (n : ℕ), (∀ i ∈ Finset.range n, 0 < a i) → Finset.sum (Finset.range n) a ≥ n",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.range",
+            "Finset.sum",
+            "NNReal",
+            "a",
+            "n",
+            "≥"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (a : ℕ → NNReal) (n : ℕ) (h₀ : Finset.prod (Finset.range n) a = 1), ∀ i ∈ Finset.range n, 0 < a i",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.prod",
+            "Finset.range",
+            "NNReal",
+            "a",
+            "h",
+            "n"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (a : ℕ → NNReal) (n : ℕ) (h₀ : Finset.prod (Finset.range n) a = 1), (Finset.prod (Finset.range n) a) ^ (1 / (n : ℝ)) = 1",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Finset.prod",
+            "Finset.range",
+            "NNReal",
+            "a",
+            "h",
+            "n"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "algebra_amgm_sqrtxymulxmyeqxpy_xpygeq4",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (x y : ℝ), 0 < x → 0 < y → y ≤ x → Real.sqrt (x * y) * (x - y) = x + y → x ≠ y",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.sqrt",
+            "x",
+            "y",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (x y : ℝ), 0 < x → 0 < y → y ≤ x → Real.sqrt (x * y) * (x - y) = x + y → x + y = Real.sqrt (x * y) * (x - y)",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.sqrt",
+            "x",
+            "y",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (x y : ℝ), 0 < x → 0 < y → y ≤ x → Real.sqrt (x * y) * (x - y) = x + y → (x + y) ^ 2 = x * y * (x - y) ^ 2",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Real.sqrt",
+            "x",
+            "y",
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "algebra_binomnegdiscrineq_10alt28asqp1",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (a : ℝ), 0 ≤ (a - 5 / 28) ^ 2",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (a : ℝ), 10 * a ≤ 28 * a ^ 2 + 1 ↔ 0 ≤ 28 * (a - 5 / 28) ^ 2 + 1 - 25 / 28",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (a : ℝ), 28 * a ^ 2 - 10 * a + 1 = 28 * (a - 5 / 28) ^ 2 + 1 - 25 / 28",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "algebra_manipexpr_apbeq2cceqiacpbceqm2",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (a b c : ℂ) (h₀ : a + b = 2 * c), (a + b) * c = 2 * c ^ 2",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "b",
+            "c",
+            "h",
+            "ℂ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (a b c : ℂ) (h₀ : a + b = 2 * c), a * c + b * c = (a + b) * c",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "b",
+            "c",
+            "h",
+            "ℂ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (c : ℂ) (h₁ : c = Complex.I), 2 * c ^ 2 = -2",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Complex.I",
+            "c",
+            "h",
+            "ℂ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "algebra_xmysqpymzsqpzmxsqeqxyz_xpypzp6dvdx3y3z3",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (x y z : ℤ), (x - y) ^ 2 + (y - z) ^ 2 + (z - x) ^ 2 = x * y * z → x + y + z + 6 ∣ x ^ 3 + y ^ 3 + z ^ 3 - 3 * x * y * z",
+          "gate": "skipped",
+          "shared_symbols": [
+            "x",
+            "y",
+            "z",
+            "ℤ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (x y z : ℤ), x + y + z + 6 ∣ x ^ 3 + y ^ 3 + z ^ 3 → x + y + z + 6 ∣ 3 * x * y * z",
+          "gate": "skipped",
+          "shared_symbols": [
+            "x",
+            "y",
+            "z",
+            "ℤ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (x y z : ℤ), x + y + z + 6 ∣ (x + y + z) ^ 3 → x + y + z + 6 ∣ x ^ 3 + y ^ 3 + z ^ 3 - 3 * x * y * z",
+          "gate": "skipped",
+          "shared_symbols": [
+            "x",
+            "y",
+            "z",
+            "ℤ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "amc12_2000_p11",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (a b : ℝ), a * b = a - b → a * b + b = a",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "b",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (a b : ℝ), a * b = a - b → a * b + b = a → a * (b - 1) = -b",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "b",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (a b : ℝ), a ≠ 0 → b ≠ 0 → a * b = a - b → a / b + b / a = (a ^ 2 + b ^ 2) / (a * b)",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "b",
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "amc12_2000_p15",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (f : ℂ → ℂ) (h₀ : ∀ x, f (x / 3) = x ^ 2 + x + 1) (h₁ : Fintype (f ⁻¹' {7})), f ⁻¹' {7} = {x | f x = 7}",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Fintype",
+            "f",
+            "h",
+            "x",
+            "ℂ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (f : ℂ → ℂ) (h₀ : ∀ x, f (x / 3) = x ^ 2 + x + 1), ∀ x, f x = 7 ↔ (x / 3) ^ 2 + (x / 3) + 1 = 7",
+          "gate": "skipped",
+          "shared_symbols": [
+            "f",
+            "h",
+            "x",
+            "ℂ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (f : ℂ → ℂ) (h₀ : ∀ x, f (x / 3) = x ^ 2 + x + 1) (h₁ : Fintype (f ⁻¹' {7})), ∀ y, y ∈ (f ⁻¹' {7}).toFinset ↔ f y = 7",
+          "gate": "skipped",
+          "shared_symbols": [
+            "Fintype",
+            "f",
+            "h",
+            "toFinset",
+            "x",
+            "y",
+            "ℂ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "amc12_2000_p5",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (x : ℝ) (h₀ : x < 2), x - 2 < 0",
+          "gate": "skipped",
+          "shared_symbols": [
+            "h",
+            "x",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (x p : ℝ) (h₀ : x < 2) (h₁ : abs (x - 2) = p), p = -(x - 2)",
+          "gate": "skipped",
+          "shared_symbols": [
+            "abs",
+            "h",
+            "p",
+            "x",
+            "ℝ"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (x p : ℝ) (h₀ : x < 2) (h₁ : abs (x - 2) = p), x - p = x + (x - 2)",
+          "gate": "skipped",
+          "shared_symbols": [
+            "abs",
+            "h",
+            "p",
+            "x",
+            "ℝ"
+          ],
+          "relevant": true
+        }
+      ]
+    },
+    {
+      "target": "amc12_2001_p2",
+      "candidates": 3,
+      "gate_ok": 0,
+      "gate_ok_and_relevant": 0,
+      "demand_used": 4,
+      "seeds_used": 4,
+      "error": "",
+      "candidate_detail": [
+        {
+          "index": 0,
+          "type": "∀ (a b : ℕ), 1 ≤ a → a ≤ 9 → b ≤ 9 → 10 * a + b = a * b + a + b → b = 9",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "b"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 1,
+          "type": "∀ (a b : ℕ), 1 ≤ a → a ≤ 9 → b ≤ 9 → 10 * a + b = a * b + a + b → a = 1",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "b"
+          ],
+          "relevant": true
+        },
+        {
+          "index": 2,
+          "type": "∀ (a b : ℕ), b ≤ 9 → 10 * a + b = a * b + a + b → (9 - b) * (a - 1) = 0",
+          "gate": "skipped",
+          "shared_symbols": [
+            "a",
+            "b"
+          ],
+          "relevant": true
+        }
+      ]
+    }
+  ],
+  "candidates_dir": "experiments\\runs\\conj_demand_20260920T122527Z"
+}
