@@ -1,0 +1,456 @@
+{
+  "generated_at": "2026-09-20T05:05:00.749616+00:00",
+  "candidates_file": "experiments\\runs\\conj_demand_20260920T042755Z\\candidates.jsonl",
+  "endpoint": "http://127.0.0.1:8770/solve",
+  "k": 3,
+  "funnel": {
+    "candidates": 15,
+    "passed_hard_gates": 13,
+    "rejected_trivial": 1,
+    "rejected_novelty": 1,
+    "proof_candidates": 39,
+    "verified": 4,
+    "rejected_unprovable": 9,
+    "materialized": 4,
+    "library_written": 4
+  },
+  "reasons": {
+    "trivial:aesop": 1,
+    "novelty:duplicate": 1,
+    "solve:no_valid_proof": 9
+  },
+  "materialized_names": [
+    "sgs_lem_1",
+    "sgs_lem_2",
+    "sgs_lem_3",
+    "sgs_lem_4"
+  ],
+  "generated_file": "sgslean\\generated\\Library.lean",
+  "generated_compiles": true,
+  "library": "experiments\\library.jsonl",
+  "verdict": "pass",
+  "criterion": "链路跑通（不是全部候选都在门检被拒）即算跑通；入库 ≥1 条则 pass",
+  "timing": {
+    "total_s": 875.1
+  },
+  "detail": [
+    {
+      "key": "aime_1984_p5#0",
+      "target": "aime_1984_p5",
+      "stmt": "∀ (a b : ℝ), Real.logb 8 a + Real.logb 4 (b ^ 2) = 5 → Real.logb 8 a + Real.logb 4 (b ^ 2) = Real.logb 8 a + Real.logb 4 (b ^ 2)",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 2,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "key": "aime_1984_p5#1",
+      "target": "aime_1984_p5",
+      "stmt": "∀ (a b : ℝ), Real.logb 8 a + Real.logb 4 (b ^ 2) = 5 → Real.logb 8 b + Real.logb 4 (a ^ 2) = 7 → Real.logb 8 a + Real.logb 8 b + Real.logb 4 (a ^ 2) + Real.logb 4 (b ^ 2) = 12",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 2,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "key": "aime_1984_p5#2",
+      "target": "aime_1984_p5",
+      "stmt": "∀ (a b : ℝ), a * b = 512 → Real.logb 8 (a * b) = Real.logb 8 512",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": true,
+      "trivial_by": "aesop",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": null
+    },
+    {
+      "key": "aime_1987_p8#0",
+      "target": "aime_1987_p8",
+      "stmt": "∀ n : ℕ, 0 < n → (∃! k : ℕ, (8 : ℝ) / 15 < n / (n + k) ∧ (n : ℝ) / (n + k) < 7 / 13) → n ≤ 112",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    {
+      "key": "aime_1987_p8#1",
+      "target": "aime_1987_p8",
+      "stmt": "∀ n k : ℕ, 0 < n → (8 : ℝ) / 15 < n / (n + k) → (n : ℝ) / (n + k) < 7 / 13 → n * 13 < 7 * (n + k)",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    {
+      "key": "aime_1987_p8#2",
+      "target": "aime_1987_p8",
+      "stmt": "∀ n k : ℕ, 0 < n → (8 : ℝ) / 15 < n / (n + k) → (n : ℝ) / (n + k) < 7 / 13 → 8 * (n + k) < 15 * n",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "exception"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    {
+      "key": "aime_1988_p3#0",
+      "target": "aime_1988_p3",
+      "stmt": "∀ (x : ℝ) (h₀ : 0 < x), Real.logb 2 x = Real.logb 8 x * 3",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    {
+      "key": "aime_1988_p3#1",
+      "target": "aime_1988_p3",
+      "stmt": "∀ (x : ℝ) (h₀ : 0 < x), Real.logb 8 (Real.logb 2 x) = Real.logb 2 (Real.logb 2 x) / 3",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    {
+      "key": "aime_1988_p3#2",
+      "target": "aime_1988_p3",
+      "stmt": "∀ (x : ℝ) (h₀ : 0 < x) (h₁ : Real.logb 2 (Real.logb 8 x) = Real.logb 8 (Real.logb 2 x)), Real.logb 2 x * (Real.logb 2 x - 3) = 24",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "parse_error"
+        }
+      ]
+    },
+    {
+      "key": "aime_1988_p4#0",
+      "target": "aime_1988_p4",
+      "stmt": "∀ (n : ℕ) (a : ℕ → ℝ) (h₀ : ∀ n, abs (a n) < 1) (h₁ : (∑ k ∈ Finset.range n, abs (a k)) = 19 + abs (∑ k ∈ Finset.range n, a k)), ∑ k ∈ Finset.range n, abs (a k) < n",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    {
+      "key": "aime_1988_p4#1",
+      "target": "aime_1988_p4",
+      "stmt": "∀ (n : ℕ) (a : ℕ → ℝ) (h₀ : ∀ n, abs (a n) < 1) (h₁ : (∑ k ∈ Finset.range n, abs (a k)) = 19 + abs (∑ k ∈ Finset.range n, a k)), 19 < ∑ k ∈ Finset.range n, abs (a k)",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    {
+      "key": "aime_1988_p4#2",
+      "target": "aime_1988_p4",
+      "stmt": "∀ (n : ℕ) (a : ℕ → ℝ) (h₀ : ∀ n, abs (a n) < 1) (h₁ : (∑ k ∈ Finset.range n, abs (a k)) = 19 + abs (∑ k ∈ Finset.range n, a k)), 20 ≤ n",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": false,
+      "novel_matched": "∀ (n : ℕ) (a : ℕ → ℝ) (h₀ : ∀ n, abs (a n) < 1) (h₁ : (∑ k ∈ Finset.range n, abs (a k)) = 19 + abs (∑ k ∈ Finset.range n, a k)), 20 ≤ n",
+      "novel_detail": "",
+      "verdicts": null
+    },
+    {
+      "key": "aime_1990_p2#0",
+      "target": "aime_1990_p2",
+      "stmt": "(52 + 6 * Real.sqrt 43) * (52 - 6 * Real.sqrt 43) = 2704 - 108 * 43",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    {
+      "key": "aime_1990_p2#1",
+      "target": "aime_1990_p2",
+      "stmt": "∀ x y : ℝ, 0 ≤ x → 0 ≤ y → x ^ ((3 : ℝ) / 2) * y ^ ((3 : ℝ) / 2) = (x * y) ^ ((3 : ℝ) / 2)",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 2,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "key": "aime_1990_p2#2",
+      "target": "aime_1990_p2",
+      "stmt": "52 - 6 * Real.sqrt 43 = (Real.sqrt 43 - 3) ^ 2 * 4",
+      "gate": "ok",
+      "gate_detail": "",
+      "trivial": false,
+      "trivial_by": "",
+      "trivial_detail": "",
+      "novel": true,
+      "novel_matched": "",
+      "novel_detail": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 2,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    }
+  ]
+}

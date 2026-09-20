@@ -31,6 +31,35 @@ class LeanServerError(RuntimeError):
     pass
 
 
+# 心跳预算的经验值与"批内累计"这个坑
+# -----------------------------------
+# Lean 的心跳计数器是**按 command 累计**的：一整批作业都跑在同一个
+# `example : True := by run_tac ...` 里，所以计数器**不会**在作业之间复位。
+# 症状极具迷惑性——phase19 用 9 条候选（`True` / `1 = 1` 这种）做离线漏斗，
+# 27 条作业、预算 4,000,000，结果 8/9 条候选在**门检**就被判 `exception`：
+# 不是这些命题难，而是前面几十条作业把累计预算用光了。
+#
+# 这也回头解释了 phase17：miniF2F 的 G1 每批 60 条作业、预算 4,000,000，
+# 于是"每批后半段的作业集体报 exception"，被误读成"模型证不出"。
+# phase18 把预算提到 40,000,000 后 164 条一批只剩 11 条 exception，
+# 与"累计"这个模型一致（≈240k 心跳/作业）。
+#
+# 因此：**预算必须随批大小放大**，而不是固定值。
+HEARTBEATS_BASE = 4_000_000
+HEARTBEATS_PER_JOB = 200_000
+
+
+def budget_for_jobs(n_jobs: int) -> int:
+    """按批大小估一个够用的心跳预算。
+
+    这是**经验估计**，不是定理。真实做法应该是每个作业前后复位计数器
+    （若 Lean 暴露该 API）或改成每作业一个 command；在做到那一步之前，
+    这个估计配合"报告里如实记录预算"足够可靠——而且它是可验证的：
+    若某批里出现 `exception`，先看它是不是集中在批次尾部。
+    """
+    return HEARTBEATS_BASE + HEARTBEATS_PER_JOB * max(0, n_jobs)
+
+
 class LeanServer:
     """一次性启动、多批复用的 `sgslean-server`。"""
 
