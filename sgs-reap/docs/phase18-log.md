@@ -93,3 +93,82 @@ python tests\diagnose_exceptions.py --limit 6 --heartbeats 40000000 --timeout-ms
    `data/targets_hard.jsonl`（裸解不出的目标集）——那才是 N2 的 W；
 3. 顺带测一条**预算曲线**（心跳 8M / 16M / 40M），确定"最便宜且不失真"的设置，
    否则重跑 G1 的时间成本会失控（本次 6 条就花了 817 s）。
+
+---
+
+# 阶段 18 续：全量重判（修正后的 G1）+ 两个必须记录的发现
+
+## 全量重判结果
+
+```powershell
+python tests\diagnose_exceptions.py --mode all --limit 0 --heartbeats 40000000 --timeout-ms 300000 \
+       --out experiments\results\reverify_all_n164.json
+```
+
+```
+[diag] 修正后 G1：目标 57 / 候选 164 / 通过 44 / 非零解目标 18（31.6%）/ 判定 pass
+[diag] hard 目标 37 条写入 data/targets_hard.jsonl
+[diag] 翻转后判定分布：{'type_error': 68, 'ok': 44, 'unknown_identifier': 6, 'parse_error': 11,
+                        'unclosed_goals': 17, 'exception': 11, 'protocol_error:internal_error': 7}
+[diag] 耗时 2549s
+```
+
+**闸门 G1（miniF2F 子集）：从"不过（13.3%）"翻转为"通过（31.6%）"。**
+
+| 指标 | phase17（原报告） | phase18（修正后） |
+|---|---|---|
+| 候选通过 | 17 / 164 | **44 / 164** |
+| 非零解目标比例 | 13.3% | **31.6%** |
+| `exception` | 122 / 164 | **11 / 164** |
+| 判定 | fail_no_signal | **pass** |
+
+`type_error` 抽查确认是**真实的模型失败**（`linarith failed to find a contradiction`、
+`introN failed: There are no additional binders...`），不是工具问题。
+
+## 发现 1：判定是可复现的，之前的不一致来自"片段语法错误"
+
+两次全量重判的判定分布对不上（`mvar_or_sorry` 23 → 0、`type_error` 24 → 68），
+这本来会动摇所有 G1 数字。于是做了一个对照：用同一子集、同样预算重跑一次，逐条比对。
+
+```
+一致 19 / 不一致 1 （共 20 条）
+（唯一不一致：amc12a_2008_p2#0，全量那次是 protocol_error，重跑判 ok）
+```
+
+**结论：判定是稳定的**。两轮分布差异来自**第一次全量重判时片段还带着语法错误**
+（`set_option linter.unusedTactic false` 被插在 tactic 块内部，见"发现 3"）——
+那个错误会污染判定码。修好之后分布稳定。
+
+## 发现 2：有些候选会**把验证子进程打崩**（不是判负）
+
+7 条 `protocol_error:internal_error`，集中在 3 个目标（`amc12a_2008_p2/p4/p15`）。
+而且它是**偶发**的——`amc12a_2008_p2#0` 在全量那次崩了、在重跑那次判 `ok`。
+
+两个后果：
+
+* **修正后的 44 仍然偏低**：这 7 条里已知至少 1 条其实是 `ok`，其余 6 条未知；
+* 需要一个**重试策略**：把 `protocol_error` 的条目单独用小批（每批 1 条）重判一次，
+  而不是当成"失败"计入 solve_rate。
+
+（这次的逐条落盘修复把损失从 40 条压到 7 条，说明那个修复有效。）
+
+## 发现 3：两个已修的工具 bug
+
+**3.1 `out.json` 攒到最后写 → 一条候选崩掉，整批 40 条响应全丢。**
+改为**逐条落盘**后，同类情况的损失从 40 条降到 7 条。
+
+**3.2 生成的 Lean 片段本身有语法错误。**
+`set_option linter.unusedTactic false` 原本被插在 tactic 块**内部**（`run_tac` 之后），
+Mathlib 模式下片段报 `unexpected identifier; expected 'in'`。移到 header 后 `child.log` 干净，
+判定分布也随之稳定（见发现 1）。
+
+## 阶段 A 完成
+
+**产出**：
+
+* 判定预算运行时可配（协议 v1.2，`ping` 回报实际生效值）；
+* `data/targets_hard.jsonl`：**37 条**"修正后裸解不出"的目标——这是 N2 的工作负载 W；
+* 修正后的 G1 报告（`experiments/results/reverify_all_n164.json`）与可复现性对照（`repro_check.json`）。
+
+**下一步（阶段 B）**：把 `demand` 接上猜想器。审计已确认 `/conjecture` 在 P1–P3 的任何
+harness 里都没被调用过——这是与 SG-Lean 设计最根本的一条偏离。

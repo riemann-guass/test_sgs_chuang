@@ -169,9 +169,14 @@ def runJobs : TacticM Unit := do
   let text ← IO.FS.readFile jobsFileName
   let jobs := (Json.parse text).toOption.bind (fun j => j.getArr?.toOption) |>.getD #[]
   let mut out : Array Json := #[]
+  -- **逐条落盘**，不要攒到最后一次写：只要批里有一条候选让子进程硬崩
+  -- （tactic 把栈打爆 / 解释器 OOM），攒写就会让**整批**响应一起消失。
+  -- phase18 实测丢过整整 40 条（一个 chunk）。逐条写把损失限制在出问题的那一条，
+  -- 父进程侧对缺失条目回 `响应缺失`，剩下的结果仍然可用。
+  IO.FS.writeFile outFileName (Json.arr out).compress
   for job in jobs do
     out := out.push (← handleJob job)
-  IO.FS.writeFile outFileName (Json.arr out).compress
+    IO.FS.writeFile outFileName (Json.arr out).compress
 
 end
 
@@ -190,14 +195,13 @@ def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) : String
     "open Lean Meta Elab Tactic",
     "set_option autoImplicit true",
     "set_option Elab.async false",
-    -- 检查器（`core`）不会认出上面的 `set_option` 是数据，所以必须逐个拼出来；
     -- 这两个值来自环境变量，缺省与库里的默认常量一致。
     s!"set_option maxHeartbeats {heartbeats}",
     -- 单 tactic 的墙钟上限：Mathlib 级 tactic 在解释执行下偶发很慢，
     -- 心跳管住 CPU 预算、墙钟兜住 IO/解释器开销，两者要一起调。
-    s!"set_option reap.timeout {tacticTimeoutMs}",
+    s!"set_option reap.timeout {tacticTimeoutMs}"] ++ linterPatch ++ #[
     "example : True := by",
-    "  run_tac SgsLean.Server.runJobs"] ++ linterPatch ++ #[
+    "  run_tac SgsLean.Server.runJobs",
     "  trivial",
     ""]).toList)
 
