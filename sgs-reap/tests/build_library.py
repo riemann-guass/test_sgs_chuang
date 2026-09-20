@@ -194,8 +194,12 @@ def main() -> int:
         result = (responses.get("mat") or {}).get("result") or {}
         compile_ok = None
         if not args.skip_compile and GENERATED.exists():
+            # 必须用**模块目标**：`lake build SgsLean`（库目标）实测不会把
+            # `SgsLean.GeneratedLibrary` 编进去（报 208 jobs 成功，但 olean 不存在），
+            # 于是处理臂的片段以 "object file ... does not exist" 直接崩——
+            # 表现为"给库后全部退化"，是纯粹的假象（phase22 踩过）。
             proc = subprocess.run(
-                ["lake", "build", "SgsLean"], cwd=str(ROOT / "sgslean"),
+                ["lake", "build", "SgsLean.GeneratedLibrary"], cwd=str(ROOT / "sgslean"),
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
             )
             compile_ok = proc.returncode == 0
@@ -317,16 +321,16 @@ def main() -> int:
         written_names = list(result.get("names") or [])
         funnel["materialized"] = int(result.get("written") or 0)
         if not args.skip_compile and GENERATED.exists():
-            # 用 `lake build SgsLean` 而不是 `lake env lean <file>`：前者除了编译校验，
-            # 还会产出 olean——阶段 D 的对照臂要靠 `import SgsLean.GeneratedLibrary` 拿到它。
+            # 用模块目标（不是库目标，也不是 `lake env lean <file>`）：既做编译校验，
+            # 又产出 olean——阶段 D 的处理臂要靠 `import SgsLean.GeneratedLibrary` 拿到它。
             proc = subprocess.run(
-                ["lake", "build", "SgsLean"],
+                ["lake", "build", "SgsLean.GeneratedLibrary"],
                 cwd=str(ROOT / "sgslean"),
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
             )
             compile_ok = proc.returncode == 0
             if not compile_ok:
-                print("[lib] 物化文件编译失败（`lake build SgsLean` 非零退出）：")
+                print("[lib] 物化文件编译失败（`lake build SgsLean.GeneratedLibrary` 非零退出）：")
                 print(((proc.stdout or "") + (proc.stderr or ""))[-1200:])
         written = add_many(
             library_path,
