@@ -241,18 +241,40 @@ def sub_scores_to_review(relevance: float, complexity: float, redundancy: float)
 # 两者都只做文本生成与轻量规范化，"证明对不对"一律由 Lean 侧（SgsLean/Server.lean）判定。
 
 
-def solve_prompt(statement: str, num_samples: int) -> str:
+def solve_prompt(
+    statement: str,
+    num_samples: int,
+    library: list[dict] | None = None,
+) -> str:
     """整篇证明的提示词：输出 tactic 脚本，不输出定理声明。
 
     约束刻意写得死，因为 Lean 侧的 `Verify.verify` 会把证明脚本包进 `exact by ...` 后跑
     reap 的重放 + kernel 终检：多一个 `theorem` 头、多一个 `sorry`、少一步都会直接判负。
+
+    `library`（阶段 D/E 的记忆注入）：已在 Lean 环境里**物化成有名常量**的引理列表，
+    形如 `[{"name": "sgs_lem_1", "stmt": "..."}]`。空列表 = 不出现该区块，
+    于是"有库 / 无库"就是天然的两臂对照——`cover` 的真定义正是靠这两臂算的。
     """
-    return (
+    parts: list[str] = [
         "You are a Lean 4 theorem prover. Prove the following statement:\n\n"
         "```lean4\n"
         f"{statement.strip()}\n"
-        "```\n\n"
-        f"Give {num_samples} DIFFERENT proof(s) of it. Each proof must satisfy ALL of:\n"
+        "```\n"
+    ]
+    if library:
+        blocks = "\n".join(
+            f"- `{item.get('name', '?')}` : {str(item.get('stmt', '')).strip()}"
+            for item in library
+            if str(item.get("stmt", "")).strip()
+        )
+        parts.append(
+            "\nAVAILABLE LEMMAS: the following lemmas are ALREADY PROVED and available in the "
+            "environment under exactly these names. You may cite them directly "
+            "(e.g. `exact sgs_lem_1 ...` or `rw [sgs_lem_2]`). They are optional:\n"
+            f"{blocks}\n"
+        )
+    parts.append(
+        f"\nGive {num_samples} DIFFERENT proof(s) of it. Each proof must satisfy ALL of:\n"
         "1. It is a TACTIC SCRIPT — the body of `by ...` only. No `theorem`/`lemma`/`example` "
         "keyword, no statement, no `by` keyword.\n"
         "2. No `sorry`, no `admit`, no `?_` placeholder.\n"
@@ -265,6 +287,7 @@ def solve_prompt(statement: str, num_samples: int) -> str:
         "Output each proof in its own ```lean4 code block, one proof per block, "
         "and put nothing else inside the block."
     )
+    return "".join(parts)
 
 
 def extract_proofs(generation: str) -> list[str]:

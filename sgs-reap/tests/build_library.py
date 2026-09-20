@@ -54,7 +54,9 @@ from lean_server import LeanServer, budget_for_jobs  # noqa: E402
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
 RUNS = ROOT / "experiments" / "runs"
-GENERATED = ROOT / "sgslean" / "generated" / "Library.lean"
+# 物化目标放在 **lib 内部**，这样 `import SgsLean.GeneratedLibrary` 能被解析
+# （阶段 D 的两臂对照要求"库真的在 Lean 环境里可用"，而不只是 Python 里一行 JSON）。
+GENERATED = ROOT / "sgslean" / "SgsLean" / "GeneratedLibrary.lean"
 DEFAULT_CANDIDATES = RUNS / "conj_demand_20260920T042755Z" / "candidates.jsonl"
 DEFAULT_SOLVE = "http://127.0.0.1:8765/solve"
 
@@ -125,16 +127,20 @@ def main() -> int:
     parser.add_argument("--k", type=int, default=3, help="每条候选让 Solver 出几篇证明")
     parser.add_argument("--imports", default="Mathlib")
     parser.add_argument("--skip-compile", action="store_true", help="跳过物化文件的编译校验")
+    parser.add_argument("--from-library", action="store_true",
+                        help="不跑漏斗，直接把 --library 里已有的条目重新物化"
+                             "（改物化路径/重建 olean 时用，省掉重跑求解）")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
     cand_path = resolve(args.candidates)
     library_path = resolve(args.library)
-    if not cand_path.exists():
+    # `--from-library` 只需要库文件，不需要候选文件
+    if not args.from_library and not cand_path.exists():
         print(f"[lib] 候选文件不存在：{cand_path}")
         return 1
-    candidates = load_candidates(cand_path, args.limit)
-    if not candidates:
+    candidates = [] if args.from_library else load_candidates(cand_path, args.limit)
+    if not candidates and not args.from_library:
         print("[lib] 没有候选")
         return 1
     # 新颖性的对比基准：**父目标**（设计里 Novelty 拦的就是"重述父目标"与"重述库中已有引理"）。
@@ -165,6 +171,50 @@ def main() -> int:
     funnel: dict[str, int] = collections.Counter()
     reasons: dict[str, int] = collections.Counter()
     kept: list[dict] = []
+
+    if args.from_library:
+        rows = [
+            json.loads(line)
+            for line in library_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if not rows:
+            print(f"[lib] --from-library 但库为空：{library_path}")
+            return 1
+        entries = [
+            {"stmt": row["stmt"], "proof": row["proof"], "verified": True,
+             "source": row.get("source", "library")}
+            for row in rows
+        ]
+        with LeanServer(imports=args.imports, heartbeats=budget_for_jobs(len(entries) + 1),
+                        stderr_path=RESULTS / "build_library_stderr.log") as server:
+            responses = server.batch(
+                [{"id": "mat", "cmd": "materialize", "path": str(GENERATED), "entries": entries}]
+            )
+        result = (responses.get("mat") or {}).get("result") or {}
+        compile_ok = None
+        if not args.skip_compile and GENERATED.exists():
+            proc = subprocess.run(
+                ["lake", "build", "SgsLean"], cwd=str(ROOT / "sgslean"),
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            compile_ok = proc.returncode == 0
+            if not compile_ok:
+                print(((proc.stdout or "") + (proc.stderr or ""))[-1200:])
+        report = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "mode": "from_library",
+            "library": rel(library_path),
+            "materialized": int(result.get("written") or 0),
+            "generated_file": rel(GENERATED),
+            "generated_compiles": compile_ok,
+            "timing": {"total_s": round(time.perf_counter() - started, 1)},
+        }
+        out_path = Path(args.out) if args.out else RESULTS / "build_library_from_library.json"
+        out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[lib] 从库重新物化 {report['materialized']} 条 → {GENERATED}")
+        print(f"[lib] 编译校验 {compile_ok}；报告 {out_path}")
+        return 0
 
     # ── ①②③ 硬门：一次批处理（check + trivial + novelty 三类作业全发，省导入）
     # 预算随批大小放大：心跳是**按 command 累计**的，固定预算会让批次尾部集体报 exception
@@ -267,14 +317,16 @@ def main() -> int:
         written_names = list(result.get("names") or [])
         funnel["materialized"] = int(result.get("written") or 0)
         if not args.skip_compile and GENERATED.exists():
+            # 用 `lake build SgsLean` 而不是 `lake env lean <file>`：前者除了编译校验，
+            # 还会产出 olean——阶段 D 的对照臂要靠 `import SgsLean.GeneratedLibrary` 拿到它。
             proc = subprocess.run(
-                ["lake", "env", "lean", str(GENERATED)],
+                ["lake", "build", "SgsLean"],
                 cwd=str(ROOT / "sgslean"),
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
             )
             compile_ok = proc.returncode == 0
             if not compile_ok:
-                print("[lib] 物化文件编译失败：")
+                print("[lib] 物化文件编译失败（`lake build SgsLean` 非零退出）：")
                 print(((proc.stdout or "") + (proc.stderr or ""))[-1200:])
         written = add_many(
             library_path,

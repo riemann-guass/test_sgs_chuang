@@ -163,6 +163,8 @@ class MockState:
             "latency_ms": round((time.perf_counter() - start) * 1000, 3),
             "cache_hit": False,
             "known_statement": statement in MOCK_SOLUTIONS,
+            # 回显记忆注入条数：离线测试据此断言"库确实被送到了解题器"
+            "library_used": len(req.get("library") or []),
         }
         return proofs, meta
 

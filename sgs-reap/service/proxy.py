@@ -180,7 +180,15 @@ def handle_solve(req: dict) -> dict:
         raise ValueError("statement 为空")
     num_samples = max(1, min(8, int(req.get("num_samples", 4) or 4)))
 
-    prompt = prompts.solve_prompt(statement, num_samples)
+    # 记忆注入（阶段 D/E）：库里的引理已在 Lean 环境中物化成有名常量，
+    # 这里把它们的**名字 + 语句**告诉模型，让它可以直接引用。
+    # 空列表 = 提示词里不出现该区块 ⟹ "有库 / 无库"是干净的两臂对照（cover 的真定义靠它算）。
+    library = [
+        {"name": str(item.get("name", "")), "stmt": str(item.get("stmt", ""))}
+        for item in (req.get("library") or [])
+        if str(item.get("stmt", "")).strip()
+    ][:16]
+    prompt = prompts.solve_prompt(statement, num_samples, library=library)
     with BACKEND_LOCK:
         text, meta = BACKEND.chat(
             [{"role": "user", "content": prompt}],
@@ -201,6 +209,7 @@ def handle_solve(req: dict) -> dict:
         {
             "endpoint": "solve",
             "num_samples": num_samples,
+            "library": len(library),
             "parsed": len(parsed),
             "kept": len(proofs),
             "usage": meta.get("usage", {}),
