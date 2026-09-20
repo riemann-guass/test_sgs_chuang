@@ -1,0 +1,30 @@
+{
+  "rounds": 2,
+  "per_round": [
+    {
+      "round": 0,
+      "targets_solved": 2,
+      "cover_delta": null,
+      "library_size": 0,
+      "candidates": 4,
+      "passed_hard_gates": 2,
+      "verified": 0,
+      "library_written": 0,
+      "timing_s": 55.5
+    },
+    {
+      "round": 1,
+      "targets_solved": 2,
+      "cover_delta": 0,
+      "library_size": 0,
+      "candidates": 4,
+      "passed_hard_gates": 2,
+      "verified": 0,
+      "library_written": 0,
+      "timing_s": 55.3
+    }
+  ],
+  "curriculum": "data\\lemmas_g1.jsonl",
+  "total_s": 110.8,
+  "library_after": []
+}
