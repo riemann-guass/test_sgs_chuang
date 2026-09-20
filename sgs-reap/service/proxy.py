@@ -59,7 +59,11 @@ def handle_conjecture(req: dict) -> dict:
     if not goal_state.strip():
         raise ValueError("goal_state 为空")
 
-    prompt = prompts.conjecture_prompt(goal_state, num_samples)
+    # N1 的两个条件化输入：需求签名（来自真实轨迹的聚合）与库范例。
+    # 只做长度截断与去空，**不做语义过滤**——过滤规则属于 Lean 侧的门检/硬门。
+    demand = [str(x) for x in (req.get("demand") or []) if str(x).strip()][:8]
+    seeds = [str(x) for x in (req.get("seeds") or []) if str(x).strip()][:4]
+    prompt = prompts.conjecture_prompt(goal_state, num_samples, demand=demand, seeds=seeds)
     with BACKEND_LOCK:
         text, meta = BACKEND.chat(
             [{"role": "user", "content": prompt}],
@@ -82,6 +86,8 @@ def handle_conjecture(req: dict) -> dict:
         {
             "endpoint": "conjecture",
             "num_samples": num_samples,
+            "demand": len(demand),
+            "seeds": len(seeds),
             "parsed": len(props),
             "kept": len(candidates),
             "usage": meta.get("usage", {}),
@@ -89,7 +95,15 @@ def handle_conjecture(req: dict) -> dict:
             "cache_hit": meta.get("cache_hit"),
         }
     )
-    return {"candidates": candidates, "meta": {**meta, "parsed_propositions": len(props)}}
+    return {
+        "candidates": candidates,
+        "meta": {
+            **meta,
+            "parsed_propositions": len(props),
+            "demand_used": len(demand),
+            "seeds_used": len(seeds),
+        },
+    }
 
 
 def handle_guide(req: dict) -> dict:

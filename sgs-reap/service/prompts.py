@@ -22,14 +22,45 @@ NO_CONCLUSION_COMPLEXITY_SCORE_FOUND = -1112.0
 NO_GUIDE_SCORE_FOUND = -1234567890.0
 
 
-def conjecture_prompt(goal_state: str, num_samples: int) -> str:
-    return (
-        "You are helping a Lean 4 theorem prover. Here is the CURRENT PROOF STATE "
-        "(the line starting with `⊢` is the main goal; everything above it is the local context):\n\n"
+def conjecture_prompt(
+    goal_state: str,
+    num_samples: int,
+    demand: list[str] | None = None,
+    seeds: list[str] | None = None,
+) -> str:
+    """出题提示词。
+
+    `demand`（N1）与 `seeds`（库范例）都是**可选区块**，且刻意做成"空列表 = 不出现"：
+    这样 `demand=[]` 就是天然的消融对照组（同预算、同模型，只去掉需求条件化），
+    H1 要比较的正是这两者。若把它们写成"DEMAND: (none)"之类的占位，
+    对照就不再干净了。
+    """
+    parts: list[str] = [
+        "You are helping a Lean 4 theorem prover. Here is the TARGET the prover is stuck on:\n\n"
         "```lean4\n"
         f"{goal_state.strip()}\n"
-        "```\n\n"
-        f"Propose {num_samples} DIFFERENT auxiliary lemma(s) that would help prove the main goal. "
+        "```\n"
+    ]
+
+    if demand:
+        bullets = "\n".join(f"- {item}" for item in demand if str(item).strip())
+        parts.append(
+            "\nBACKGROUND EVIDENCE (not the answer): the following subgoals repeatedly appeared in "
+            "EARLIER proof attempts and were never discharged directly. They are signals about which "
+            "kinds of gaps the library has — NOT a list of lemmas to output.\n"
+            f"{bullets}\n"
+            "Do NOT output these subgoals (or trivial rephrasings of them) as your answer.\n"
+        )
+
+    if seeds:
+        blocks = "\n".join(f"```lean4\n{item.strip()}\n```" for item in seeds if str(item).strip())
+        parts.append(
+            "\nLIBRARY EXCERPTS: lemmas that were already proved and turned out useful before.\n"
+            f"{blocks}\n"
+        )
+
+    parts.append(
+        f"\nPropose {num_samples} DIFFERENT auxiliary lemma(s) that would help prove the target. "
         "Each lemma must satisfy ALL of the following:\n"
         "1. It is a Lean 4 PROPOSITION (a type), not a theorem declaration: no `theorem`/`lemma` keyword, "
         "no name, no proof, no `sorry`.\n"
@@ -37,10 +68,20 @@ def conjecture_prompt(goal_state: str, num_samples: int) -> str:
         "introduce any extra variables with `∀` and their assumptions with `→`.\n"
         "3. It is PROVABLE from the hypotheses already in the local context (do not invent assumptions).\n"
         "4. It is strictly simpler than the main goal, and useful for proving it.\n"
-        "5. It must NOT be identical or equivalent (up to renaming of variables) to the main goal.\n\n"
-        "Output each proposition in its own ```lean4 code block, one proposition per block, "
+        "5. It must NOT be identical or equivalent (up to renaming of variables) to the main goal.\n"
+        "6. It MUST mention at least one symbol (constant, function, type) that occurs in the TARGET "
+        "above. A lemma about unrelated subjects is useless even if it is true.\n"
+    )
+    if demand:
+        parts.append(
+            "7. Use the BACKGROUND EVIDENCE only as a hint about the *style* of gap; each lemma you "
+            "output must still be about the TARGET. Do not copy the evidence bullets.\n"
+        )
+    parts.append(
+        "\nOutput each proposition in its own ```lean4 code block, one proposition per block, "
         "and put nothing else inside the block."
     )
+    return "".join(parts)
 
 
 def extract_propositions(generation: str) -> list[str]:

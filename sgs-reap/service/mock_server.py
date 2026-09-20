@@ -100,6 +100,10 @@ class MockState:
             "model": "mock-1",
             "latency_ms": round((time.perf_counter() - start) * 1000, 3),
             "cache_hit": False,
+            # 回显 N1 的条件化输入条数：离线测试据此断言"需求确实被送到了端点"
+            # （提示词本身由 service/prompts.py 的单测覆盖）。
+            "demand_used": len(req.get("demand") or []),
+            "seeds_used": len(req.get("seeds") or []),
         }
         return candidates, meta
 

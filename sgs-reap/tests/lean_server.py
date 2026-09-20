@@ -143,8 +143,22 @@ class LeanServer:
         response = self.batch([{"id": "ping0", "cmd": "ping"}])
         return response["ping0"].get("result") or {}
 
-    def verify_all(self, items: list[dict], chunk: int = 40) -> dict[str, dict]:
-        """`items` = [{id, stmt, proof}, ...]；按 chunk 分批，复用同一进程。"""
+    def verify_all(self, items: list[dict], chunk: int = 0) -> dict[str, dict]:
+        """`items` = [{id, stmt, proof}, ...]；按 chunk 分批。
+
+        **`chunk=0`（默认）表示"一次全喂"**。原因：服务端每处理一个 flush 都会
+        **新起一个 `lean` 子进程**（`Server.runBatch`），而每个子进程都要重新导入一次
+        Mathlib（本机实测 ≈2 min 热 / ≈8 min 冷）。分 5 批就白付 5 次导入——
+        phase18 的 164 条候选跑了 2549 s，其中相当一部分是导入。
+
+        安全性由"逐条落盘"保证（`Server.runJobs` 每处理完一条就写 `out.json`）：
+        即使某个候选把子进程打崩，也只会丢它自己那一条，不会丢整批。
+
+        真正彻底的修法是让子进程跨 flush 常驻（真正的 REPL），那是后续工作；
+        在"请求可以一次算出来"的场景下，一次全喂已经等价。
+        """
+        if chunk <= 0:
+            chunk = max(1, len(items))
         out: dict[str, dict] = {}
         for start in range(0, len(items), chunk):
             part = items[start : start + chunk]
