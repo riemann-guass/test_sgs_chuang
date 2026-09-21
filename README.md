@@ -93,12 +93,14 @@ score(l) = reuse(l) / cost(l)
 └─ sgs-reap/
    ├─ sgsr/                  Python 包（对应上游 SGS 的 sgs/ 布局）
    │   ├─ models/            模型服务：真代理 / 假服务 / 提示词 / 后端 / 配置
-   │   ├─ pipeline/          需求挖掘 · 猜想 · 库 · 覆盖与选择 · 闭环编排
+   │   ├─ pipeline/          在线：prover · retrieval · repair（P1 骨架已建）
+   │   │                     离线：demand · conjecture · library · coverage · runner
    │   ├─ verification/      Lean 服务常驻客户端
    │   ├─ data/ · utils/     数据模式与服务辅助
    ├─ sgslean/               Lean 实验库（Gate/Verify/Trivial/Novelty/Measure/Materialize/Trace/Server）
    ├─ reap-fork/             上游 reap 的本地 fork（验证内核与 MCTS）
-   ├─ scripts/ · tools/      实验入口与一次性探针
+   ├─ scripts/               实验入口：prove · run_prover_eval · run_round · run_gate_* · …
+   ├─ tools/                 数据集转换与后端自检
    ├─ data/ · experiments/   数据集与实验报告
    └─ docs/                  方案、框架、数据协议、接口契约、阶段日志
 ```

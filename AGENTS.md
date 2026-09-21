@@ -105,7 +105,7 @@ D:\bianma\code\大创\
    │   ├─ models\               proxy.py(真代理 /solve /conjecture /guide) · mock_server.py(假服务) ·
    │   │                        prompts.py(提示词与解析) · backend.py(OpenAI 兼容) · config.py · .env(不入库)
    │   ├─ pipeline\             demand(N1) · conjecture · library · coverage · runner(闭环编排)
-   │   │                        【待建】prover.py · retrieval.py · repair.py
+   │   │                        prover.py · retrieval.py · repair.py（P1 骨架已建，待实现）
    │   ├─ verification\         client.py：sgslean-server 的常驻客户端
    │   ├─ data\                 schema.py（轨迹/需求/库的数据模式）
    │   └─ utils\                service.py（起服务、日志尾巴、端口解析）
@@ -114,9 +114,10 @@ D:\bianma\code\大创\
    ├─ reap-fork\                reap 的本地 fork（上游 commit 1477439）
    │                            **验证内核是地基**：sgslean 直接 import Reap.Tactic.{Conjecture,Step,TreeSearch}
    │                            MCTS 全套（Generator/TreeSearch/Options）已就绪、默认关闭
-   ├─ scripts\                  实验入口：run_round(闭环) · build_library · run_conjecture ·
-   │                            run_gate_g1/g2/g3_real · diagnose_exceptions · run_server_smoke …
-   ├─ tools\                    一次性探针与数据集转换：probe_guide*.py · minif2f_to_jsonl.py
+   ├─ scripts\                  实验入口：prove(单题) · run_prover_eval(批量) · run_round(闭环) ·
+   │                            build_library · run_conjecture · run_gate_g1/g2/g3_real ·
+   │                            diagnose_exceptions · run_server_smoke · run_m1_calibration …
+   ├─ tools\                    数据集转换与后端自检：minif2f_to_jsonl.py · check_backend.py
    ├─ data\                     数据集（角色见第四节）
    ├─ experiments\              results\(入库的报告) + runs\(逐条轨迹，可再生产物，不入库)
    └─ docs\                     proposal · framework · data-protocol · implementation-blueprint ·
