@@ -1,122 +1,163 @@
-# SG-Lean：把 SGS 的三角色搬到推理期，用形式化测量替代 LLM Guide
+# SG-Lean：复用导向的轻量自博弈 Lean 4 证明器
 
-> **要研究的可证伪问题**：把 SGS（*Scaling Self-Play with Self-Guidance*）的判断信号从
-> "LLM 猜"换成**形式化、面向工作负载的测量 G**，"变强"的载体从**权重更新**换成
-> **引理库 + prompt 记忆注入**（不做任何梯度训练）之后，同一套三角色循环能否仍然成立、
-> 并且比 LLM Guide 产生更有用的库？
+> 输入一条 Lean 命题，输出一段通过 Lean 内核终检的证明。
+> 做法上沿用 **SGS**（*Scaling Self-Play with Self-Guidance*）的三角色自博弈框架，
+> 但把它从**训练期搬到推理期**：用**形式化、可计算的判据**替代 LLM 打分，
+> 用**引理库 + 提示词注入**替代权重更新。全程**不做任何梯度训练**。
 
-## 一句话定位
+## 目标与评判指标
 
-SGS 的训练期自博弈**搬不进 tactic**——tactic 活在单次 elaboration 内，没有跨 episode 的模型更新。
-所以本项目不做"SGS 的轻量化复现"，而是**保留三角色结构、循环形状与防退化思想，只换两样东西**：
-
-| SGS 训练期 | SG-Lean 推理期 | 处理 |
+| 优先级 | 指标 | 定义 |
 |---|---|---|
-| Solver 生成证明 | 同一角色，额外产出**轨迹**（子目标状态流） | 保留 + 增产 |
-| Conjecturer 出题 | 条件化在**未解目标 + 需求状态 + 已入库引理范例**上出**引理** | 角色保留，输入扩展（N1） |
-| Guide 用 LLM 打分 | **形式化价值 G** = 硬门 × 软分 | 职责保留，实现替换（N2/N3） |
-| 奖励 `review × (1 − solve_rate)` | `硬门 × 软分`（可证性以硬门形式保留） | 思想保留 |
-| 权重更新 | **库更新（子模贪心）+ prompt 记忆注入** | 载体替换 |
+| **1** | **正确率** | 冻结测试集上的 `pass@1` / `pass@k`，**目标级**统计 |
+| **2** | **成本** | `CostPerSolved`、`CostPerLemma`、**`CostPerReusable`**（建库 token 除以"被至少两个不同目标引用过"的引理数） |
+| **3** | **轻量化** | **硬约束**：0 可训练参数、0 GPU、单实验 ≤12 小时、单实验 API ≤500 元 |
 
-**G 的定义**
+取舍规则：正确率有显著差异就选正确率高的；无差异选成本低的；都接近选实现简单的；
+违反轻量化硬约束的一律淘汰。
 
-```
-硬门（布尔，任一为假即淘汰）
-  非平凡：simp / aesop / decide 在预算内解不出
-  新颖  ：不 α-等价于已有引理/目标，且库检索未命中
-  可证  ：solve_rate(τ) > 0（Solver 采样 k 次）
-软分（连续，用于排序与子模选择）
-  压缩收益 Δlen(τ)：用了该引理后证明变短（搜索展开数 / token 数）
-  覆盖收益 cover(S) = |{w ∈ W : w 能被 S 帮助证明}|   ← 并集 → 单调子模 → 贪心 (1−1/e)
-```
+## 核心思路
 
-## 研究问题
+保留 SGS 的三角色结构与循环形状，**替换其中两样东西**：
 
-* **H1**：需求驱动的条件化（N1）比只条件化在"未解目标"上，产生**库命中率更高**的引理。
-* **H2**：以压缩 + 覆盖为价值的形式化选择（N2/N3），在同一预算下比 SGS 的 **LLM Guide 打分**
-  产生在 held-out 上更有用的库（pass@k 更高）。
+| SGS（训练期） | SG-Lean（推理期） |
+|---|---|
+| 求解者：整篇生成证明 | **保留**，仍是语言模型（Lean 是裁判，不是求解者） |
+| 出题者：条件化在未解目标上出合成题 | 保留结构，**输入扩展**：额外喂入"跨题重复出现的子目标需求" |
+| Guide：LLM 给合成数据打分 | **替换为形式化复用判据** |
+| 奖励 × 权重更新 | **替换为库更新 + 提示词注入** |
+| 评测在训练题上 | **留出集协议**：建库集与报告集不同源 |
 
-对照必须公平：`sgsr/models/` 里的 `/guide`、GuideClient 与 rubric **原样保留**，它是 H2 的对照组。
+### 唯一的方法性改动：把 Guide 换成"复用判据"
 
-## 当前进度（闸门是停机点）
-
-| 阶段 | 内容 | 闸门 | 状态 |
-|---|---|---|---|
-| P0 | 接口契约、假服务、Lean 猜想客户端、真实模型代理 | M0 / M1 | ✅ M0 通过；M1 利用率 90%，**Guide 占 98% completion token**（H2 要改的对象） |
-| P1 | `sgslean` 包：Gate/Verify、stdio JSON 服务、`/solve`、轨迹落盘、Mathlib 工程 | **G1** | ✅ **通过**：63 条引理 × k=3，mean solve_rate 0.873、非零解占比 98.4% |
-| P2 | 轨迹层（子目标签名 v1.1 = 上下文 ⊢ 目标）、需求挖掘 `d(g)=freq×cost` | **G2** | ✅ **通过**：4 条跨目标需求签名 |
-| P3 | 非平凡 / 新颖 / 压缩 / 覆盖 + 引理库（子模选择）+ 物化 | **G3** | ✅ **通过**：子模性 0 违例、贪心比 1.000 ≥ 0.632；物化文件可编译 |
-| P4 | 闭环与三组对照（SGS 式 Guide / 形式化价值 / 无库） | G4 | ⬜ |
-| P5 | 审计、统计、写作 | — | ⬜ |
-| P6 | 结题交付（上游 diff、数据卡） | — | ⬜ |
-
-阶段划分与逐文件清单见 [`sgs-reap/docs/implementation-blueprint.md`](sgs-reap/docs/implementation-blueprint.md)；
-研究方案本体（与 SGS/STP/MINIMO/Bourbaki/LEGO-Prover 等的划界表、降级预案）见
-[`sgs-reap/docs/proposal.md`](sgs-reap/docs/proposal.md)。
-
-## 目录
+SGS 的 Guide 衡量的是"这条合成题**对当前这道目标**有没有用"；而本领域反复承认的痛点是
+**"抽出的引理大多问题特异、不可复用"**——**判据与痛点是错位的**。我们把判据改成面向跨题复用的量：
 
 ```
-sgs-reap/
-├─ sgsr/          【Python 包】对应上游 SGS 的 sgs/ 布局
-│   ├─ data/          轨迹/需求的数据模式
-│   ├─ models/        模型服务：config/backend/prompts/proxy/mock_server（真代理与假服务）
-│   ├─ pipeline/      需求挖掘(N1)、猜想、引理库、覆盖度(N2)、**闭环编排 runner**
-│   ├─ verification/  Lean 服务常驻客户端
-│   └─ utils/         本地服务启动辅助
-├─ scripts/       实验入口（对应 SGS 的 scripts/）：闭环、各闸门、漏斗、诊断
-├─ sgslean/       【核心】Lean 实验库：Gate/Verify/Trivial/Novelty/Measure/Materialize/Trace/Server
-├─ reap-fork/     reap 的本地 fork（只做极小 patch；上游 commit 在 docs/upstream.md 锁定）
-├─ tools/         一次性探针与数据集转换（结论已入 phase 日志）
-├─ data/          课程集 C、开发集 D（miniF2F valid）、测试集 T（miniF2F test）、G1 引理集
-├─ experiments/   闸门报告（results/ 入库）与逐条轨迹（runs/ 可再生产物，不入库）
-└─ docs/          方案、框架、数据协议、接口契约、实施蓝图、阶段日志、路径对照表
+reuse(l) = l 被多少个【不同目标】的【通过验收的】证明实际引用
+cost(l)  = l 进入提示词的 token 数
+score(l) = reuse(l) / cost(l)
+```
+
+它同时承担**准入、排序与淘汰**。选择问题因此成为提示词预算约束下的**单调子模最大化**，
+用密度贪心并取较优后具有 `1/2(1-1/e)` 的近似保证。
+
+三个必须照做的设计决定：按"不同目标"而非引用次数计数；只统计通过验收的证明里的引用；
+每次实验前做**环境预检**（确认处理臂真的能 `import` 到库）。
+
+## 框架：两个时间尺度
+
+```
+┌─ 在线：一道题（秒级至分钟级）───────────────────────────────┐
+│  命题 → 门检 → 廉价 tactic 兜底 → 分层检索 → 求解 k 篇      │
+│                                    ↑              ↓          │
+│                         库(精排) + Mathlib(兜底)  内核终检   │
+│                                                  ├ 过 → 输出 │
+│                                                  └ 败 → repair│
+└─────────────────────────────────────────────────────────────┘
+                        ▲ 库注入（受 token 预算约束）
+┌─ 离线：一批课程集（小时级）─────────────────────────────────┐
+│  采轨迹 → 挖需求 → 出题者出引理 → 硬门 → 求解验证           │
+│  → 复用判据打分 → 选择入库 → 物化 → 下一轮                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+两个尺度只通过**库**这一个接口相连。**在线只有求解者出场；出题者与评审者只存在于离线**。
+
+## 当前状态
+
+**已具备**（均有离线测试与真实输出）：
+
+- **Lean 侧**：门检 `Gate`、内核终检 `Verify`、非平凡 `Trivial`、新颖 `Novelty`、
+  软分测量 `Measure`、物化 `Materialize`、轨迹 `Trace`、stdio JSON 服务 `Server`（协议 v1.2）
+- **Python 侧**：模型代理与假服务、提示词与解析、需求挖掘、猜想、库读写、
+  覆盖度与选择、**闭环编排**（十步一环）
+- **测量装置**：两臂覆盖测量，含环境预检与引用计数
+
+**待建**（见思路文档第二版第 9 节）：
+
+1. **P1 证明器本体**：`prover.py` + 兜底臂 + 检索层 + `repair.py` + `scripts/prove.py`
+2. **P2 小实验台**：数据准备、难度标定、复用判据接线、库 ≤100 条
+3. **P3 三组对照**：A（SGS 原样，LLM 打分）／B（复用判据 + 需求）／C（随机伪需求消融）
+4. **P4 成本与复用分析**、**P5 写作**
+
+参考基线：miniF2F **valid** 修正预算后（k=3）候选级 44/164、目标级 18/57 ≈ 32%；
+"近失手"（解出率严格介于 0 与 1）约占一成，是唯一有增益信号的区间。
+
+## 目录结构
+
+```
+.
+├─ docs/                     项目级文档（三份 PDF 及 LaTeX 源码）
+├─ AGENTS.md                 项目记忆与约束
+└─ sgs-reap/
+   ├─ sgsr/                  Python 包（对应上游 SGS 的 sgs/ 布局）
+   │   ├─ models/            模型服务：真代理 / 假服务 / 提示词 / 后端 / 配置
+   │   ├─ pipeline/          需求挖掘 · 猜想 · 库 · 覆盖与选择 · 闭环编排
+   │   ├─ verification/      Lean 服务常驻客户端
+   │   ├─ data/ · utils/     数据模式与服务辅助
+   ├─ sgslean/               Lean 实验库（Gate/Verify/Trivial/Novelty/Measure/Materialize/Trace/Server）
+   ├─ reap-fork/             上游 reap 的本地 fork（验证内核与 MCTS）
+   ├─ scripts/ · tools/      实验入口与一次性探针
+   ├─ data/ · experiments/   数据集与实验报告
+   └─ docs/                  方案、框架、数据协议、接口契约、阶段日志
 ```
 
 ## 快速开始（离线可复现）
 
 ```powershell
-# Lean 侧：库 + 测试 + 服务（首次需要 Mathlib，见 docs/upstream.md）
+$py = "C:\Users\gaosen\anaconda3\python.exe"   # Python 3.12.4；lake 由 elan 提供
+
+# Lean 侧：库 + 测试 + 服务（首次需要 Mathlib）
 cd sgs-reap\sgslean
 lake build SgsLean SgsLean.Test sgslean-server
+lake build SgsLean.GeneratedLibrary   # 库目标不编这个模块，必须点名模块目标
 
-# 协议冒烟（默认无 Mathlib 的快速模式；$env:SGSLEAN_IMPORTS="Mathlib" 走生产配置）
+# 离线闭环冒烟（假服务，无 Mathlib，快）
 cd ..
-python tests\run_server_smoke.py
+& $py sgsr\models\mock_server.py --port 8765
+& $py scripts\run_round.py --rounds 2 --target-limit 2 --k 1 --n 2 --imports none --expect-mock
 
-# 闸门复现
-python tests\run_solve_mock.py                     # 离线：生成 -> 验证 -> 轨迹落盘
-python tests\run_gate_g2.py --dry-run --limit 38    # G2：需求挖掘
-python tests\run_gate_g2.py --self-test             # 零成本过滤器自测
-python tests\run_gate_g1.py --dry-run --limit 12    # G1 harness（真跑要先起代理）
+# 真实模型（需网络权限；密钥在 sgsr\models\.env，不入库）
+& $py sgsr\models\proxy.py --port 8770
+& $py scripts\run_gate_g3_real.py --select nearmiss --limit 6 --k 4 --endpoint http://127.0.0.1:8770/solve
 ```
 
-真实模型：`python service\proxy.py --port 8770`（密钥在 `service\.env`，已 gitignore；
-**必须在有网络权限的进程里起**，否则 `/solve` 会 503 而 `/health` 仍正常）。
+`/health` 正常但 `/solve` 返回 503，说明代理起在没有网络权限的进程里。
 
-## 关键实测数字（原始输出都在 `sgs-reap/docs/phase*.md`）
+## 文档
 
-| 项 | 数值 |
+| 文档 | 内容 |
 |---|---|
-| LLM Guide 的成本占比（P0 / M1） | 98% 的 completion token（20 次调用 45,104 tokens） |
-| 一次 Lean 批处理的固定成本 | 无 Mathlib ≈15 s；Mathlib 模式 67 s（热）～493 s（冷） |
-| G1（63 条 × k=3） | 188 篇候选 / 164 通过；API 63 次调用、51 s；Lean 4 批 ≈8.9 min |
-| G1 失败原因构成 | `mvar_or_sorry` 12（模型吐 `sorry` 类证明，6.4%）、`type_error` 11、`unclosed_goals` 1 |
-| G2（38 条轨迹，签名 v1.1） | 39 个签名 / 4 条需求；trace 3 批 ≈6.5 min |
-| G3（35 目标 / 39 签名） | 子模性违例 0/500；贪心 = 最优（比 1.000 ≥ 0.632 界）；代理 0 次 Lean 调用 |
-| 物化（3 条引理） | 生成 `sgslean/generated/Library.lean` 并**编译通过**（75.5 s） |
+| **SG-Lean 思路文档（第二版）** | **实现规格**：目标与指标、求解器配置、全部计算公式、数据规格、阶段计划、接口字段 |
+| SG-Lean 思路汇报（第一版） | 理念记录：为什么这样做、与 SGS 的关系 |
+| 库的相关工作 | 文献综述：前提选择与引理库演化两条技术线的现状与我们的位置 |
 
-## 不可动的约定
+## 定位说明（诚实版）
 
-* `/guide`、GuideClient、rubric 与 `tools/probe_guide*.py` 是 H2 对照组，**必须保留**。
-* `reap-fork/.lake` 不删；`sgsr/models/.env` 不入库；不得提交密钥。
-* 数据角色（`docs/data-protocol.md`）：**建库只用课程集 C**，miniF2F valid 只用于调参，
-  test 只在冻结后跑一次；`scripts/run_round.py` 里有硬守卫。
-* 不做梯度训练；"课程变好"只能用固定 held-out 上的 pass@k 证明。
-* 闸门不过就按 `docs/proposal.md` 的预案降级，不擅自换主线。
+这个方向已经相当拥挤，因此**明确写出我们不去声称什么**：
+
+| 已被占据 | 代表工作 |
+|---|---|
+| 前提选择 / 检索 | LeanSearch v2、LeanExplore、LeanPremise、ReProver、Magnushammer |
+| 引理库的演化与管理 | DreamProver（wake-sleep）、LEGO-Prover、MathlibLemma |
+| 智能体证明器的成本-质量路由 | Optimizing the Cost-Quality Tradeoff of Agentic Theorem Provers |
+| 编译器反馈驱动的精修 | Compile to Compress |
+| 基准缺陷审计 | Faults in Our Formal Benchmarking |
+
+**我们认为仍然空着的三处**（因此作为主攻方向）：
+
+1. 判据面向**跨题复用**，而不是"对当前目标有没有用"——现有选择判据（LRU、语义聚类、
+   结构相似度阈值）都不直接优化这个量；
+2. 用**形式化可计算判据替代 LLM 打分**，并在同一预算下正面对照（SGS 论文自己把"用求解动态
+   标注合成数据"列为 future work，但未见实现）；
+3. 报**"每个可复用引理的 token 成本"**这一成本口径，把复用与成本放在同一张 Pareto 图上。
 
 ## 参考
 
-* SGS: Scaling Self-Play with Self-Guidance — <https://arxiv.org/abs/2604.20209>
-* reap — <https://github.com/frenzymath/reap>
-* REAL-Prover — <https://arxiv.org/abs/2505.20613>
+- SGS: Scaling Self-Play with Self-Guidance — <https://arxiv.org/abs/2604.20209>
+- DreamProver: Evolving Transferable Lemma Libraries — <https://arxiv.org/abs/2604.26311>
+- LeanSearch v2: Global Premise Retrieval — <https://arxiv.org/abs/2605.13137>
+- LeanDojo / ReProver — <https://arxiv.org/abs/2306.15626>
+- LEGO-Prover: Neural Theorem Proving with Growing Libraries — <https://arxiv.org/abs/2310.00656>
+- reap — <https://github.com/frenzymath/reap>

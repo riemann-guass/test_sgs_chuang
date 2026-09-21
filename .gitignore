@@ -38,6 +38,7 @@ credentials.json
 checkpoints/
 models/
 *.pdf
+!docs/*.pdf
 *.zip
 *.tar
 *.tar.gz
