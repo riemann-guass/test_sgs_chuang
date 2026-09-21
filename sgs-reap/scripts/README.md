@@ -11,8 +11,8 @@
 
 | 脚本 | 作用 | 状态 |
 |---|---|---|
-| `prove.py` | **单题入口**：一条命题进，一篇过内核终检的证明出 | ⬜ P1 待实现 |
-| `run_prover_eval.py` | 在一个数据集上批量评测，报 pass@k 与三条成本指标 | ⬜ P1 待实现 |
+| `prove.py` | **单题入口**：一条命题进，一篇过内核终检的证明出 | ✅ P1（phase25） |
+| `run_prover_eval.py` | 在一个数据集上批量评测，报 pass@k 与成本指标 | ✅ P1（phase25）；真模型数字待跑 |
 
 ### 离线建库（库的建立与管理）
 
@@ -55,6 +55,7 @@ $py = "C:\Users\gaosen\anaconda3\python.exe"
 & $py scripts\run_round.py --rounds 2 --target-limit 2 --k 1 --n 2 --imports none --expect-mock
 
 # 真跑：先起真代理（需网络权限 + sgsr\models\.env）
+$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 见下：直接跑脚本时 sgsr 包不在 sys.path 上
 & $py sgsr\models\proxy.py --port 8770
 & $py scripts\run_round.py --rounds 3 --k 2 --n 3
 
@@ -65,6 +66,10 @@ $py = "C:\Users\gaosen\anaconda3\python.exe"
 & $py scripts\prove.py --statement "forall (n : Nat), n + 0 = n" --k 4
 & $py scripts\run_prover_eval.py --set D --k 4 --out experiments\results\p1_dev.json
 ```
+
+> `python sgsr\models\proxy.py` 直接跑时，Python 会把**脚本所在目录**（`sgsr\models`）放进
+> `sys.path`，于是 `from sgsr.models import config` 报 `ModuleNotFoundError`。
+> 起服务前把仓库根加到 `PYTHONPATH`（如上），或用 `python -m sgsr.models.proxy`。
 
 ## 约定
 

@@ -69,14 +69,16 @@ score(l) = reuse(l) / cost(l)
 **已具备**（均有离线测试与真实输出）：
 
 - **Lean 侧**：门检 `Gate`、内核终检 `Verify`、非平凡 `Trivial`、新颖 `Novelty`、
-  软分测量 `Measure`、物化 `Materialize`、轨迹 `Trace`、stdio JSON 服务 `Server`（协议 v1.2）
+  廉价 tactic 兜底 `Trivial.tryCheapTactics`、软分测量 `Measure`、物化 `Materialize`、
+  轨迹 `Trace`、stdio JSON 服务 `Server`（协议 v1.2，含 `cheap` 命令）
 - **Python 侧**：模型代理与假服务、提示词与解析、需求挖掘、猜想、库读写、
-  覆盖度与选择、**闭环编排**（十步一环）
+  覆盖度与选择、**闭环编排**（十步一环）、**在线九步证明器**
+  （`prover` · `retrieval` · `repair` + `scripts/prove.py` / `run_prover_eval.py`）
 - **测量装置**：两臂覆盖测量，含环境预检与引用计数
 
 **待建**（见思路文档第二版第 9 节）：
 
-1. **P1 证明器本体**：`prover.py` + 兜底臂 + 检索层 + `repair.py` + `scripts/prove.py`
+1. **P1 真模型数字**：九步已实现并通过离线验证，但 pass@k 与成本要由能出网的进程跑
 2. **P2 小实验台**：数据准备、难度标定、复用判据接线、库 ≤100 条
 3. **P3 三组对照**：A（SGS 原样，LLM 打分）／B（复用判据 + 需求）／C（随机伪需求消融）
 4. **P4 成本与复用分析**、**P5 写作**

@@ -63,15 +63,19 @@ def getTrivialHeartbeats {m : Type → Type} [Monad m] [MonadLiftT IO m] : m Nat
 /-- 依次尝试的 tactic（顺序 = 从便宜到贵）。 -/
 def probes : Array String := #["decide", "simp", "aesop"]
 
-/-- 在孤立义务目标上跑一条 tactic，返回它是否把子目标清零。 -/
-private def closesGoal (ty : Expr) (tactic : String) : TacticM Bool := do
+/-- 在孤立义务目标上、用指定心跳预算跑一条 tactic，返回它是否把子目标清零。 -/
+private def closesGoalWithBudget (ty : Expr) (tactic : String) (budget : Nat) : TacticM Bool := do
   withoutModifyingState do
     let obligation ← mkFreshExprSyntheticOpaqueMVar ty
     setGoals [obligation.mvarId!]
     let ctx ← mkProofCheckContext
-    match ← evalTacticStrNoFinalCheck ctx tactic (← getTrivialHeartbeats) with
+    match ← evalTacticStrNoFinalCheck ctx tactic budget with
     | .error _ => return false
     | .ok _ => return (← getUnsolvedGoals).isEmpty
+
+/-- 在孤立义务目标上跑一条 tactic（用当前批的秒杀预算），返回它是否把子目标清零。 -/
+private def closesGoal (ty : Expr) (tactic : String) : TacticM Bool :=
+  do closesGoalWithBudget ty tactic (← getTrivialHeartbeats)
 
 /-- 判定语句是否平凡。 -/
 def isTrivial (stmt : String) : TacticM TrivialResult := do
@@ -85,6 +89,69 @@ def isTrivial (stmt : String) : TacticM TrivialResult := do
       if closed then
         return { stmt := normalizeStmt stmt, trivial := true, byTactic := tactic, tried := tried }
     return { stmt := normalizeStmt stmt, trivial := false, tried := tried }
+
+/-! ## 廉价 tactic 兜底（在线第 3 步） -/
+
+/-- 一批廉价 tactic：`heartbeatScale` 是相对 `getTrivialHeartbeats` 的预算倍数。 -/
+structure CheapBatch where
+  /-- 本批依次尝试的 tactic（顺序 = 从便宜到贵）。 -/
+  tactics : Array String
+  /-- 本批的心跳预算是 `(← getTrivialHeartbeats) * heartbeatScale`。 -/
+  heartbeatScale : Nat
+deriving Repr, Inhabited
+
+/-- 廉价兜底的结果。 -/
+structure CheapResult where
+  /-- 是否有 tactic 在预算内清空了子目标。 -/
+  hit : Bool
+  /-- 命中时的 tactic 原文；未命中时为空串。 -/
+  tactic : String := ""
+  /-- 命中时的证明脚本（v1：就是该 tactic 本身）。 -/
+  proof : String := ""
+  /-- 依次尝试过的 `(tactic, 是否闭合, 用的预算)`，供标定与诊断。 -/
+  tried : Array (String × Bool × Nat) := #[]
+  /-- 语句 elaborate 失败时的错误原文（此时 `hit=false`，但**不是**"兜底失败"）。 -/
+  detail : String := ""
+deriving ToJson, Repr, Inhabited
+
+/-- 三批 tactic 清单（规格文档 3.3 节）。
+
+顺序与预算都必须与文档一致：第一批零参数、最便宜；第二批是 Mathlib 的中等成本 tactic；
+第三批把 `aesop` 的预算放到最大。每批的预算是**相对** `SGSLEAN_TRIVIAL_HEARTBEATS`
+的倍数——这样标定"非平凡"用的那个预算一变，兜底的三档预算跟着一起变，两者不会脱节。
+
+注意 `first` 不在清单里：它会在同一份预算下把每条 tactic 都试一遍，
+与"逐条试、命中即停"的记账口径冲突（`tried` 就不再是"试过哪些"）。
+复杂度留在 Python 侧的 repair 步骤，本函数只做"一次一条"的探针。 -/
+def cheapBatches : Array CheapBatch := #[
+  { tactics := #["rfl", "decide", "simp", "norm_num", "omega"], heartbeatScale := 3 },
+  { tactics := #["ring", "field_simp", "positivity", "linarith", "nlinarith",
+                 "constructor", "aesop"], heartbeatScale := 10 },
+  { tactics := #["aesop"], heartbeatScale := 50 }
+]
+
+/-- 廉价 tactic 兜底：依次试三批，返回第一条清空子目标的 tactic。
+
+与 `isTrivial` 走同一条 `evalTacticStrNoFinalCheck` 路径，区别只有两点：
+试哪些 tactic（`cheapBatches` vs `probes`）与预算档（三档递增 vs 单档）。
+
+本函数**不做**内核终检——命中的脚本仍要过 `Verify.verify` 才能进输出。
+这是刻意的分工：兜底是「不花模型钱地弄出一个候选」，终检是唯一的放行口。
+否则一条 `decide` 产出的带残余元变量的脚本会绕过整个验收层。 -/
+def tryCheapTactics (stmt : String) : TacticM CheapResult := do
+  match ← elabStmtType (normalizeNewlines stmt) with
+  | .error detail => return { hit := false, detail := detail }
+  | .ok ty =>
+    let base ← getTrivialHeartbeats
+    let mut tried : Array (String × Bool × Nat) := #[]
+    for batch in cheapBatches do
+      let budget := base * batch.heartbeatScale
+      for tactic in batch.tactics do
+        let closed ← closesGoalWithBudget ty tactic budget
+        tried := tried.push (tactic, closed, budget)
+        if closed then
+          return { hit := true, tactic := tactic, proof := tactic, tried := tried }
+    return { hit := false, tried := tried }
 
 end Trivial
 end SgsLean

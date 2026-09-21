@@ -156,12 +156,14 @@ D:\bianma\code\大创\
 | 闭环编排（十步一环） | `sgsr/pipeline/runner.py` + `scripts/run_round.py` | ✅ 离线假服务 2 轮冒烟通过 |
 | 两臂覆盖测量装置 | `scripts/run_gate_g3_real.py` | ✅ 含环境预检与引用计数 |
 | 模型服务与协议 v1.2 | `sgsr/models/` + `SgsLean/Server.lean` | ✅ |
+| 廉价 tactic 兜底（在线第 3 步） | `SgsLean/Trivial.tryCheapTactics` + `Server` 的 `cheap` 命令 | ✅ 三批清单，Mathlib/快速双模式实测 |
+| 证明器本体（在线九步） | `sgsr/pipeline/{prover,retrieval,repair}.py` + `scripts/{prove,run_prover_eval}.py` | ✅ 离线假服务全链路；**真模型数字待跑**（phase25） |
 
 **待建**（第二版文档第 9 节的 P1 至 P5）：
 
 | 阶段 | 内容 | 交付 |
 |---|---|---|
-| P1 | 证明器本体：`prover.py` + 兜底臂 + 检索层 + `repair.py` + `scripts/prove.py` | 跑出第一组 pass@k 与成本 |
+| P1 | 证明器本体：`prover.py` + 兜底臂 + 检索层 + `repair.py` + `scripts/prove.py` | ✅ 实现与离线验证完成（phase25）；**真模型 pass@k 与成本未跑**（需要能出网的进程） |
 | P2 | 小实验台：数据准备、难度标定、复用判据接线、库 ≤100 条 | 能长大的库 |
 | P3 | 三组对照（A：SGS 原样／B：复用判据＋需求／C：随机伪需求） | 可比较的同格式报告 |
 | P4 | 成本与复用分析 | 论文主图（复用率对成本） |
@@ -189,7 +191,13 @@ cd D:\bianma\code\大创\sgs-reap
 & $py scripts\run_round.py --rounds 2 --target-limit 2 --k 1 --n 2 --imports none --expect-mock
 
 # 真实模型（另开终端，需网络权限；密钥在 sgsr\models\.env）
+# 注意：直接跑脚本时 Python 只把脚本目录放进 sys.path，先设 PYTHONPATH 指向 sgs-reap
+$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"
 & $py sgsr\models\proxy.py --port 8770
+
+# P1：单题 / 批量（真模型数字要在这里跑）
+& $py scripts\prove.py --statement "∀ (a b : Nat), a + b = b + a" --k 4
+& $py scripts\run_prover_eval.py --set D --k 4 --limit 20 --out experiments\results\p1_dev_k4_n20.json
 & $py scripts\run_gate_g3_real.py --select nearmiss --limit 6 --k 4 --endpoint http://127.0.0.1:8770/solve
 
 # 自检

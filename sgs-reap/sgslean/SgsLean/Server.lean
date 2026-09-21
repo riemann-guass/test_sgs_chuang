@@ -5,7 +5,7 @@ Python 侧唯一入口，协议见 `docs/implementation-blueprint.md`。要点�
 
 * **传输**：stdin / stdout 各一行一条 JSON（JSONL），UTF-8；诊断只走 stderr，
   **stdout 只放响应**，调用方可以放心逐行 `json.loads`。
-* **命令**：`ping` / `check` / `verify` / `flush`。写若干条请求后发 `{"cmd":"flush"}` 取回本批响应，
+* **命令**：`ping` / `check` / `verify` / `cheap` / `flush`。写若干条请求后发 `{"cmd":"flush"}` 取回本批响应，
   或在 EOF 时自动 flush；每条请求恰好一条响应，顺序与请求一致。
 * **判定**：直接复用 P1.1 的 `Gate.check` / `Verify.verify`（`TacticM`），服务端与库内同源。
 
@@ -108,6 +108,7 @@ def environmentInfo : TacticM Json := do
     -- 判定预算也回报：G1/诊断的结论必须能带上"用的是哪个预算"，否则数字不可比。
     ("heartbeats", toJson (← getHeartbeats)),
     ("trivialHeartbeats", toJson (← Trivial.getTrivialHeartbeats)),
+    ("cheapBatches", toJson (Trivial.cheapBatches.map fun b => b.tactics.size)),
     ("tacticTimeoutMs", toJson (reap.timeout.get (← getOptions)))]
 
 /-- 处理一条请求 → 一条响应。任何内部失败都变成 `internal_error`，不向外抛。 -/
@@ -133,6 +134,10 @@ def handleJob (job : Json) : TacticM Json := do
       match (job.getObjValAs? String "stmt").toOption with
       | some stmt => return okResponse id (toJson (← Trivial.isTrivial stmt))
       | none => return errResponse id "invalid_params" "trivial 需要字符串字段 stmt"
+    | "cheap" =>
+      match (job.getObjValAs? String "stmt").toOption with
+      | some stmt => return okResponse id (toJson (← Trivial.tryCheapTactics stmt))
+      | none => return errResponse id "invalid_params" "cheap 需要字符串字段 stmt"
     | "novelty" =>
       match (job.getObjValAs? String "stmt").toOption with
       | none => return errResponse id "invalid_params" "novelty 需要字符串字段 stmt"

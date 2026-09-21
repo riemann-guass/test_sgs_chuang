@@ -37,6 +37,11 @@ credentials.json
 *.gguf
 checkpoints/
 models/
+# 上面那条 `models/` 是为**模型权重目录**写的，但它同时吞掉了 `sgsr/models/`（模型服务层：
+# proxy/mock_server/prompts/backend/config）。后果是这套代码**从未入库**，
+# phase24 重构把 `service/` 移到这里时连带丢了历史。这里加回例外。
+# 密钥仍由上面的 `.env` 规则挡住。
+!sgs-reap/sgsr/models/
 *.pdf
 !docs/*.pdf
 *.zip
