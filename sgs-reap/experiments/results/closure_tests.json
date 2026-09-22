@@ -1,0 +1,238 @@
+{
+  "passed": 45,
+  "failed": [
+    "物化：服务端返回 ok=true"
+  ],
+  "checks": [
+    {
+      "name": "目标身份：3 篇候选 + 1 个别的目标 = 2 个不同目标",
+      "ok": true,
+      "detail": "实际 2（旧实现在这里会给 4）"
+    },
+    {
+      "name": "目标身份：freq_total 按不同目标计",
+      "ok": true,
+      "detail": "实际 2"
+    },
+    {
+      "name": "目标身份：occurrences 仍记录总出现次数（诊断用）",
+      "ok": true,
+      "detail": "实际 4"
+    },
+    {
+      "name": "目标身份：min_targets=2 时该签名升级为 demand",
+      "ok": true,
+      "detail": "实际 demand"
+    },
+    {
+      "name": "目标身份：cost 用出现位置（3 条轨迹第 1 步 + 1 条 = 均值 1.0）",
+      "ok": true,
+      "detail": "实际 1.0"
+    },
+    {
+      "name": "目标身份：单目标 5 篇候选不构成跨目标需求",
+      "ok": true,
+      "detail": "实际 bucket=artifact（旧实现会给 demand）"
+    },
+    {
+      "name": "目标身份：缺 target 的轨迹进 problems 字段",
+      "ok": true,
+      "detail": "problems=['1/1 条轨迹没有 target 字段：统计会把它们当成互不相同的目标（见 schema.trace_from_job）']"
+    },
+    {
+      "name": "目标身份：validate_trace 抓出缺 target",
+      "ok": true,
+      "detail": "['缺字段 target（候选作业的 id 不能当目标用）']"
+    },
+    {
+      "name": "目标身份：candidate_id/target_of 往返一致",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "协议字段：ok=true 判通过",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "协议字段：ok=false 判失败",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "协议字段：verified=true 判通过（dependencies 的字段名）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "协议字段：verified=false 判失败",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "协议字段：两者都缺返回 None（协议错误 ≠ 判定为假）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "库守卫：只写入来源合法且验证过的那条",
+      "ok": true,
+      "detail": "实际写入 1"
+    },
+    {
+      "name": "库守卫：4 条被拒且给出原因",
+      "ok": true,
+      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
+    },
+    {
+      "name": "库守卫：D 来源被明确拒收",
+      "ok": true,
+      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
+    },
+    {
+      "name": "库守卫：缺 source_target 被拒",
+      "ok": true,
+      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
+    },
+    {
+      "name": "库守卫：读取侧复核能抓出手工写入的 D 来源",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "角色守卫：直接指向 D 文件被拒",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "角色守卫：D 的内容改名换目录也被拒（内容指纹）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "角色守卫：普通课程集不被误伤（反向对照）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "角色守卫：role=dev 被拒",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "解析：从声明里抽出命题",
+      "ok": true,
+      "detail": "得到 '∀ n : Nat, n + 0 = n'"
+    },
+    {
+      "name": "解析：绑定变量闭包成 ∀",
+      "ok": true,
+      "detail": "得到 '∀ n : Nat, n + 0 = n'"
+    },
+    {
+      "name": "解析：不含 import / namespace / sorry",
+      "ok": true,
+      "detail": "得到 '∀ n : Nat, n + 0 = n'"
+    },
+    {
+      "name": "解析：example 形式也能抽",
+      "ok": true,
+      "detail": "{'stmt': '∀ a b : Nat, a + b = b + a', 'origin': 'declaration', 'binders': []}"
+    },
+    {
+      "name": "解析：命题串原样保留（不做声明解析）",
+      "ok": true,
+      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'origin': 'string', 'binders': []}"
+    },
+    {
+      "name": "解析：有声明关键字但无证明体 → parse_error",
+      "ok": true,
+      "detail": "{'stmt': '', 'origin': 'string', 'error': 'parse_error', 'detail': '文本含声明关键字但没有 `:= by` 证明体，无法抽取命题', 'binders': []}"
+    },
+    {
+      "name": "选择：reuse<2 的引理被门槛拦下",
+      "ok": true,
+      "detail": "{'sgs_lem_1'}"
+    },
+    {
+      "name": "选择：诊断报告了被门槛拦下的条数",
+      "ok": true,
+      "detail": "{'mode': 'best_single', 'greedy_value': 3.0, 'best_single_value': 3.0, 'budget': 200, 'remaining': 100, 'cost': 100, 'reuse_threshold': 2, 'pool': 3, 'blocked_by_threshold': 1}"
+    },
+    {
+      "name": "选择：预算 150 时取密度更高的组合而非最贵的单条",
+      "ok": true,
+      "detail": "[('sgs_lem_1', 100)]"
+    },
+    {
+      "name": "选择：比较基准与被选结果用同一个目标函数（覆盖增益）",
+      "ok": true,
+      "detail": "{'mode': 'best_single', 'greedy_value': 3.0, 'best_single_value': 3.0, 'budget': 150, 'remaining': 50, 'cost': 100, 'reuse_threshold': 2, 'pool': 3, 'blocked_by_threshold': 1}"
+    },
+    {
+      "name": "选择：给出模式（density / best_single）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "选择：预算收紧后不超预算",
+      "ok": true,
+      "detail": "[('sgs_lem_2', 50)]"
+    },
+    {
+      "name": "选择：预算 60 时只取一条（50+20 装不下）",
+      "ok": true,
+      "detail": "[('sgs_lem_2', 50)]"
+    },
+    {
+      "name": "选择：与最优单条取较优（要么密度贪心更优、要么单条更优）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "淘汰：reuse=0 且超龄的移入冷存",
+      "ok": true,
+      "detail": "['old0']"
+    },
+    {
+      "name": "淘汰：新引理有探索额度，不被淘汰",
+      "ok": true,
+      "detail": "['new0', 'used']"
+    },
+    {
+      "name": "淘汰：被引用过的保留",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "忠实度：完全单调的两列 Spearman = 1.0",
+      "ok": true,
+      "detail": "0.9999999999999998"
+    },
+    {
+      "name": "闭包：绑定变量转 ∀（不含声明关键字，且保留 n : Nat）",
+      "ok": true,
+      "detail": "得到 '∀ n : Nat, n = n'"
+    },
+    {
+      "name": "闭包：无绑定变量时原样返回",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "物化：服务端返回 ok=true",
+      "ok": false,
+      "detail": "{'names': ['sgs_lem_1'], 'path': 'D:\\\\bianma\\\\code\\\\大创\\\\sgs-reap\\\\sgslean\\\\SgsLean\\\\GeneratedLibrary.lean', 'skipped': 0, 'written': 1}"
+    },
+    {
+      "name": "物化：`lake build SgsLean.GeneratedLibrary` 编译通过",
+      "ok": true,
+      "detail": "✔ [7889/7889] Built SgsLean.GeneratedLibrary (551s)\nBuild completed successfully (7889 jobs).\n"
+    },
+    {
+      "name": "物化：环境能 import 生成库（ping 的 importedModules 增长）",
+      "ok": true,
+      "detail": "{'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 9874, 'mathlib': True, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}"
+    }
+  ]
+}

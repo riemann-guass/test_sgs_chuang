@@ -49,10 +49,30 @@ from pathlib import Path
 
 from sgsr.pipeline.conjecture import generate as conjecture_generate
 from sgsr.pipeline.conjecture import load_demand, load_seeds
-from sgsr.pipeline.coverage import greedy as coverage_greedy
+from sgsr.pipeline.coverage import evict as coverage_evict
+from sgsr.pipeline.coverage import select_by_reuse
 from sgsr.pipeline.demand import mine as mine_demand
-from sgsr.pipeline.library import add_many, load as load_library
-from sgsr.data.schema import normalize_sig, trace_from_job
+from sgsr.pipeline.library import add_many, assert_clean_sources, load as load_library
+from sgsr.pipeline.retrieval import symbols
+from sgsr.data.schema import candidate_id, normalize_sig, target_of, trace_from_job
+
+
+def _verify_ok(result: dict) -> bool:
+    """判定"这条候选的证明过没过内核"。
+
+    **协议有两套字段名**：`verify` 命令回 `ok`（来自 `VerifyResult.ok`），
+    `dependencies` 命令回 `verified`（来自 `Measure.Dependency` 的字段）。
+    闭环用 `dependencies` 跑验证以省一次 Mathlib 导入，因此这里必须容忍两种写法——
+    phase25 的审计发现旧代码只检查 `result["ok"]`，于是**通过验证的候选也被判成不可证**，
+    库根本长不大（P0 第 3 条）。
+
+    两种都缺失时返回 `None`（而不是 `False`）：那是协议错误，要与"判定为假"分开记。
+    """
+    if "ok" in result:
+        return result.get("ok") is True
+    if "verified" in result:
+        return result.get("verified") is True
+    return None
 
 
 # ─────────────────────────── 数据角色 ───────────────────────────
@@ -61,6 +81,41 @@ from sgsr.data.schema import normalize_sig, trace_from_job
 ROLE_CURRICULUM = "curriculum"
 ROLE_DEV = "dev"
 ROLE_TEST = "test"
+
+#: 仓库根（`sgs-reap/`）。禁止路径以此为基准解析，**不能**以"候选文件的父目录"
+#: 为基准——那样把数据放在别的目录里就绕过了（实测踩过）。
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+#: 这些文件**永远**不许当建库来源，无论调用方怎么改名（`docs/data-protocol.md` 硬约束 1）。
+#: 用解析后的绝对路径比对，而不是文件名里找子串——旧守卫只看名字里有没有 `minif2f`，
+#: 把文件复制成别的名字就能绕过（审计 P0 第 5 条）。
+FORBIDDEN_ROLE_PATHS = (
+    REPO_ROOT / "data" / "minif2f_valid.jsonl",
+    REPO_ROOT / "data" / "minif2f_test.jsonl",
+)
+
+
+def _forbidden_hashes() -> dict[str, str]:
+    """禁止数据集的内容指纹（sha256）。
+
+    **为什么不只比路径**：把 D 复制到工作区外的另一个目录、改个名字，路径比对就失效了
+    （实测：`assert_buildable` 只比路径时，复制品照样过关）。内容指纹是最后一道——
+    只要内容还是那份 D/T，无论叫什么名字、放在哪里都拒。
+
+    D/T 是冻结的只读数据，所以按内容判不会误伤"以后新写的课程集"。
+    """
+    import hashlib
+
+    out: dict[str, str] = {}
+    for path in FORBIDDEN_ROLE_PATHS:
+        try:
+            out[hashlib.sha256(path.read_bytes()).hexdigest()] = path.name
+        except OSError:
+            continue
+    return out
+
+
+FORBIDDEN_ROLE_HASHES = _forbidden_hashes()
 
 
 class DataRoleError(RuntimeError):
@@ -88,12 +143,31 @@ class TargetSet:
         return TargetSet(role=role, path=p, rows=rows)
 
     def assert_buildable(self) -> None:
-        """只有 C 允许进库/挖需求。"""
+        """只有 C 允许进库/挖需求。**这个方法必须被真的调用**（审计 P0 第 5 条）。"""
         if self.role != ROLE_CURRICULUM:
             raise DataRoleError(
                 f"{self.path.name} 的角色是 {self.role}；"
                 "按 docs/data-protocol.md，只有 curriculum 可以进库/挖需求"
             )
+        resolved = self.path.resolve()
+        for forbidden in FORBIDDEN_ROLE_PATHS:
+            if resolved == forbidden.resolve():
+                raise DataRoleError(
+                    f"{resolved} 是 D/T 数据集（{forbidden.name}）——改名也不能当建库来源"
+                )
+        # 内容指纹：换了目录、换了名字但内容还是 D/T 的，一样拒
+        if FORBIDDEN_ROLE_HASHES:
+            import hashlib
+
+            try:
+                digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+            except OSError:
+                digest = ""
+            if digest in FORBIDDEN_ROLE_HASHES:
+                raise DataRoleError(
+                    f"{resolved} 的内容与 D/T 数据集 {FORBIDDEN_ROLE_HASHES[digest]} 完全相同"
+                    "——建库来源按**来源**判定，不看文件名与路径"
+                )
 
     def batch(self, limit: int = 0) -> list[dict]:
         return self.rows[:limit] if limit else list(self.rows)
@@ -113,6 +187,14 @@ class RoundConfig:
     demand_limit: int = 8
     seeds_limit: int = 4
     library_budget: int = 30          # B：库容
+    #: 提示词预算（token）：选择层的约束口径（规格 5.5 节默认 1200）
+    ctx_lemma_tokens: int = 1_200
+    #: 复用门槛：被至少这么多**不同目标**引用过才准入（与 CostPerReusable 口径一致）
+    reuse_threshold: int = 2
+    #: 僵尸淘汰：`reuse=0` 且入库超过这么多轮 → 冷存
+    evict_after: int = 3
+    #: 本库的来源语料标识（写进每条引理的 `source_corpus`，供事后审计）
+    source_corpus: str = "C1"
     target_limit: int = 0             # 本轮用多少条 C 目标（0 = 全部）
     min_proof_steps: int = 2          # 软分：证明过短（≤ 该步数）的引理记 warning
 
@@ -129,6 +211,8 @@ class RoundReport:
     solved_targets: list[str] = field(default_factory=list)
     cover_delta: int | None = None
     selected: list[dict] = field(default_factory=list)
+    #: 选择层诊断（密度贪心 vs 最优单条、预算用量、被门槛拦下的条数）
+    selection: dict = field(default_factory=dict)
     timing_s: float = 0.0
 
     def to_dict(self) -> dict:
@@ -143,6 +227,7 @@ class RoundReport:
             "solved_targets": self.solved_targets,
             "cover_delta": self.cover_delta,
             "selected": self.selected,
+            "selection": self.selection,
             "timing_s": round(self.timing_s, 1),
         }
 
@@ -204,6 +289,9 @@ class RoundRunner:
         """在目标集上跑 Solver → 记录每条候选证明的轨迹（含子目标签名）。
 
         返回 `(traces, attempts)`：traces 供需求挖掘；attempts 供后续验证。
+        `attempts` 里的 `id` 是**候选作业**标识、`target` 是**数学目标**标识——
+        两者必须分开（见 `sgsr/data/schema.py` 的 P0 说明），否则需求统计会把
+        一条目标的 k 篇候选当成 k 个不同目标。
         """
         attempts: list[dict] = []
         for target in targets:
@@ -211,16 +299,17 @@ class RoundRunner:
                            self.config.solve_endpoint, library=library)
             for idx, proof in enumerate(proofs):
                 attempts.append({
-                    "id": f"c:{target['id']}:{idx}",
+                    "id": candidate_id(f"c:{target['id']}", idx),
                     "target": target["id"],
+                    "candidate": target["id"],
                     "statement": target["statement"],
                     "proof": proof,
                 })
         traces: list[dict] = []
         if attempts:
             with self.lean_server_factory(len(attempts)) as server:
-                jobs = [{"id": a["id"], "cmd": "trace", "stmt": a["statement"], "proof": a["proof"]}
-                        for a in attempts]
+                jobs = [{"id": a["id"], "target": a["target"], "cmd": "trace",
+                         "stmt": a["statement"], "proof": a["proof"]} for a in attempts]
                 responses = server.batch(jobs)
                 self._batches += 1
             for attempt in attempts:
@@ -242,7 +331,7 @@ class RoundRunner:
             )
             for candidate in result.candidates:
                 out.append({
-                    "key": f"{target['id']}#{candidate['index']}",
+                    "key": candidate_id(target["id"], int(candidate["index"])),
                     "target": target["id"],                        # 父目标（供 parent_cover 用）
                     "target_statement": target["statement"],
                     "stmt": candidate["type"],
@@ -251,6 +340,12 @@ class RoundRunner:
 
     # ---- ④ 判据层：门检 + 硬门 ----
     def screen(self, candidates: list[dict], library: list[dict], report: RoundReport) -> list[dict]:
+        """门检 + 硬门（非平凡 ∧ 新颖）+ **相关度**。
+
+        相关度过滤（规格 5.3 节）：候选必须提到父目标里出现过的至少一个符号，
+        否则记 `fail_irrelevant` 淘汰。它是**廉价文本代理**而不是语义判据——
+        phase19 踩过"候选原样抄需求"的坑，光靠提示词约束不住，必须有硬门。
+        """
         if not candidates:
             return []
         against = [c["stmt"] for c in library]
@@ -270,6 +365,13 @@ class RoundRunner:
             trivial = (responses.get(f"t:{cand['key']}") or {}).get("result") or {}
             novelty = (responses.get(f"n:{cand['key']}") or {}).get("result") or {}
             report.funnel["candidates"] = report.funnel.get("candidates", 0) + 1
+            # 相关度硬门：先做（免费），再做门检与硬门（要 Lean）
+            parent_symbols = symbols(str(cand.get("target_statement", "")))
+            if parent_symbols and not (symbols(cand["stmt"]) & parent_symbols):
+                report.funnel["rejected_irrelevant"] = report.funnel.get("rejected_irrelevant", 0) + 1
+                report.reasons["relevance:no_symbol_overlap"] = \
+                    report.reasons.get("relevance:no_symbol_overlap", 0) + 1
+                continue
             if gate.get("ok") is not True:
                 report.funnel["rejected_gate"] = report.funnel.get("rejected_gate", 0) + 1
                 report.reasons[f"gate:{gate.get('reason')}"] = \
@@ -314,15 +416,26 @@ class RoundRunner:
         for cand in survivors:
             ok_proof = None
             constants: list[str] = []
+            last_reason = ""
             for i, proof in enumerate(cand["proofs"]):
                 result = (responses.get(f"v:{cand['key']}:{i}") or {}).get("result") or {}
-                if result.get("ok") is True and ok_proof is None:
+                verdict = _verify_ok(result)
+                if verdict is None:
+                    # 协议错误：既没有 ok 也没有 verified。这与"判定为假"不同，
+                    # 必须单列，否则工具坏了会伪装成"模型证不出"。
+                    report.reasons["protocol:missing_ok_or_verified"] = \
+                        report.reasons.get("protocol:missing_ok_or_verified", 0) + 1
+                    last_reason = "protocol_error"
+                    continue
+                if verdict and ok_proof is None:
                     ok_proof = proof
                     constants = list(result.get("constants") or [])
+                elif not verdict:
+                    last_reason = str(result.get("reason") or "")
             if ok_proof is None:
                 report.funnel["rejected_unprovable"] = report.funnel.get("rejected_unprovable", 0) + 1
-                report.reasons["solve:no_valid_proof"] = \
-                    report.reasons.get("solve:no_valid_proof", 0) + 1
+                key = f"solve:{last_reason or 'no_candidate'}"
+                report.reasons[key] = report.reasons.get(key, 0) + 1
                 continue
             cand["proof"] = ok_proof
             cand["constants"] = constants
@@ -334,30 +447,125 @@ class RoundRunner:
         return verified
 
     # ---- ⑧ 选择 ----
-    def select(self, verified: list[dict], library_size: int) -> tuple[list[dict], list[int]]:
-        """N2：在库容 B 内用子模贪心选引理（覆盖尽量多的**不同父目标**）。
+    def select(
+        self,
+        verified: list[dict],
+        library: list[dict],
+        traces: list[dict],
+    ) -> tuple[list[dict], list[float], dict]:
+        """N2：**按复用判据**选引理（规格 5.5 节的密度贪心）。
 
-        实现在 `sgsr/pipeline/coverage.py`（那里同时给了子模性与近似比的自检工具）；
-        这里只负责把库容换算成剩余预算、把 curriculum 当作目标集传进去。
+        这是项目唯一的方法性改动，所以这里必须用真判据而不是父目标代理：
+
+        * `reuse(l)` = l 被多少个**不同目标**的**通过验收的**证明实际引用；
+        * 只统计**通过验收**的证明（`attempts` 里过内核的那些），
+          失败的尝试里出现某个名字不算复用——否则模型乱写名字就能刷分；
+        * 引用从 Lean 侧抽出的**常量集合**（`dependencies` 的 `constants`）里取，
+          不是对证明文本做子串搜索。
+
+        本轮的测量范围（诚实地写进报告）：`reuse` 用**本轮**的验收证明算，
+        `reuse_targets` 也只含本轮引用过它的目标。这与规格 5.5 节"在 W_sel 上、
+        给库条件下"的完整定义差一项——那需要两臂测量（`scripts/run_gate_g3_real.py`）。
+        差别是**口径更窄**（不含历史轮次、不含在线任务），不会虚高。
         """
-        remaining = max(0, self.config.library_budget - library_size)
-        targets = self.curriculum.batch(self.config.target_limit)
-        return coverage_greedy(verified, targets, remaining)
+        # 库条目的物化名：`Materialize.emit` 按**顺序**命名 `sgs_lem_<i+1>`，
+        # 所以名字必须按库内顺序推，不能按语句内容猜。
+        named_library = [
+            dict(row, name=f"sgs_lem_{index + 1}") for index, row in enumerate(library)
+        ]
+        name_by_stmt = {normalize_sig(row["stmt"]): row["name"] for row in named_library}
+
+        # 按目标去重后统计引用：同一目标的多篇候选引用同一条引理只记 1 次
+        cited_by_target: dict[str, set[str]] = {}
+        for row in verified:
+            target = str(row.get("target") or "")
+            for constant in row.get("constants") or []:
+                leaf = str(constant).rsplit(".", 1)[-1]
+                if not leaf.startswith("sgs_lem_"):
+                    continue
+                cited_by_target.setdefault(leaf, set()).add(target)
+
+        pool: list[dict] = []
+        for row in named_library:
+            cited = cited_by_target.get(row["name"], set())
+            pool.append(dict(row, reuse=len(cited), reuse_targets=sorted(cited)))
+
+        # 候选池 = 已有库条目 + 本轮验证通过的候选（后者尚未入库，reuse 为 0）
+        existing_stmts = {normalize_sig(row["stmt"]) for row in named_library}
+        for cand in verified:
+            if normalize_sig(cand["stmt"]) in existing_stmts:
+                continue
+            pool.append({
+                "stmt": cand["stmt"],
+                "name": f"candidate:{cand['key']}",
+                "reuse": 0,
+                "reuse_targets": [],
+                "candidate": cand,
+            })
+
+        chosen, gains, diagnostics = select_by_reuse(
+            pool,
+            ctx_budget=self.config.ctx_lemma_tokens,
+            threshold=self.config.reuse_threshold,
+            count_budget=max(0, self.config.library_budget - len(library)),
+        )
+        # 只有"本轮新验证、且被选中"的候选才入库；已在库里的条目不再重复写
+        new_entries = [row["candidate"] for row in chosen if "candidate" in row]
+        return new_entries, gains, diagnostics
+
+    def evict(self, report: RoundReport) -> list[dict]:
+        """僵尸淘汰：`reuse=0` 且入库超过 R_evict 轮的引理移入冷存（不删除）。"""
+        library = load_library(self.library_path)
+        kept, evicted = coverage_evict(library, self.config.round_index,
+                                       evict_after=self.config.evict_after)
+        if not evicted:
+            return []
+        cold_path = self.library_path.with_name(self.library_path.stem + "_cold.jsonl")
+        with cold_path.open("a", encoding="utf-8") as handle:
+            for row in evicted:
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        # 重写整库（保留探索额度的那些）
+        self.library_path.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in kept), encoding="utf-8"
+        )
+        report.funnel["library_evicted"] = len(evicted)
+        return evicted
 
     # ---- ⑨ 物化 + 入库 ----
-    def commit(self, selected: list[dict]) -> int:
+    def commit(self, selected: list[dict], report: RoundReport | None = None) -> int:
+        """把选中的候选写进库 → 物化整库 → **编译**（必须点名模块目标）。
+
+        审计的 P0 第 4 条：旧代码只调 `materialize`，既不 `lake build
+        SgsLean.GeneratedLibrary`，也不检查返回。后果是下一轮提示词里给了
+        `sgs_lem_i` 的名字，而环境里没有对应的 olean——模型引用时得到
+        `unknown identifier`，表现成"库没用"。phase22 已经用两臂测量踩过一次，
+        这里是同一条坑在闭环里的复现。
+        """
         if not selected:
             return 0
-        written = add_many(
+        written, rejected = add_many(
             self.library_path,
             [
                 {"stmt": c["stmt"], "proof": c["proof"], "verified": True,
                  "source": f"round{self.config.round_index}:{c['key']}",
+                 "source_target": c.get("target", ""),
+                 "source_corpus": self.config.source_corpus,
                  "constants": c.get("constants", []), "delta_len": None,
-                 "proof_steps": c.get("proof_steps")}
+                 "proof_steps": c.get("proof_steps"),
+                 "added_round": self.config.round_index}
                 for c in selected
             ],
         )
+        if report is not None:
+            report.funnel["library_rejected"] = len(rejected)
+            if rejected:
+                for row in rejected[:5]:
+                    key = f"commit:{row['reason']}"
+                    report.reasons[key] = report.reasons.get(key, 0) + 1
+        # 入库后立刻复核来源（第二道防线，见 library.assert_clean_sources）
+        assert_clean_sources(self.library_path)
+        if written == 0:
+            return 0
         # 物化整库（Materialize.emit 是重写整个文件），并编译出 olean 供 `import` 使用
         full = [
             {"stmt": row["stmt"], "proof": row["proof"], "verified": True,
@@ -365,10 +573,55 @@ class RoundRunner:
             for row in load_library(self.library_path)
         ]
         with self.lean_server_factory(len(full)) as server:
-            server.batch([{"id": "mat", "cmd": "materialize",
-                           "path": str(self.generated_path), "entries": full}])
+            response = server.batch([{"id": "mat", "cmd": "materialize",
+                                      "path": str(self.generated_path), "entries": full}])
             self._batches += 1
+        materialized = (response.get("mat") or {}).get("result") or {}
+        # `MaterializeResult` 的字段是 `written`/`skipped`/`names`，**没有 `ok`**
+        # （审计 P0 第 4 条的同类坑：按 `ok` 判会永远失败）。协议错误时才没有 written。
+        if "written" not in materialized:
+            detail = json.dumps(materialized, ensure_ascii=False)[:300]
+            raise RuntimeError(f"物化失败：{detail}")
+        build = self.build_generated_library()
+        if report is not None:
+            report.funnel["generated_build_ok"] = build["ok"]
+            report.funnel["generated_build_jobs"] = build.get("jobs")
+            if not build["ok"]:
+                report.reasons["materialize:build_failed"] = 1
+        if not build["ok"]:
+            raise RuntimeError(
+                "物化文件编译失败——下一轮的 import 会失败，必须当轮就停下："
+                f"{build.get('tail', '')[:400]}"
+            )
         return written
+
+    def build_generated_library(self, timeout_s: int = 1800) -> dict:
+        """`lake build SgsLean.GeneratedLibrary`（**模块目标**，不能用库目标）。
+
+        `lake build SgsLean` 不会编译这个模块——phase22 的假结论就是从这来的。
+        返回 `{"ok", "jobs", "tail"}`，失败时把日志尾巴带回去，不吞错。
+        """
+        import os
+        import re
+        import subprocess
+
+        lake = os.environ.get("LAKE", "lake")
+        try:
+            proc = subprocess.run(
+                [lake, "build", "SgsLean.GeneratedLibrary"],
+                cwd=str(self.generated_path.parents[1]),
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=timeout_s,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {"ok": False, "jobs": None, "tail": f"{type(exc).__name__}: {exc}"}
+        output = (proc.stdout or "") + (proc.stderr or "")
+        match = re.search(r"\((\d+) jobs?\)", output)
+        return {
+            "ok": proc.returncode == 0,
+            "jobs": int(match.group(1)) if match else None,
+            "tail": output[-1500:],
+        }
 
     # ---- ⑩ 一轮 ----
     def run_round(self) -> RoundReport:
@@ -378,6 +631,8 @@ class RoundRunner:
                              started_at=datetime.now(timezone.utc).isoformat())
         targets = self.curriculum.batch(cfg.target_limit)
         library = load_library(self.library_path)
+        # 读库即复核来源（硬约束 1 的第二道防线）；有 D/T 来源就直接停，不继续算。
+        assert_clean_sources(self.library_path)
         report.library_before = [row["stmt"] for row in library]
         lib_for_prompt = [
             {"name": f"sgs_lem_{i + 1}", "stmt": row["stmt"]} for i, row in enumerate(library)
@@ -389,7 +644,12 @@ class RoundRunner:
         traces, attempts = self.collect(targets, lib_for_prompt)
         # trace 作业内部已经跑过 `Verify.verify`，`TraceResult.verified` 就是结论——
         # 不要再单独起一批 verify（那会多付一次 Mathlib 导入）。
-        solved: set[str] = {t["id"] for t in traces if t.get("verified") is True}
+        # **`target` 才是数学目标**：`id` 是候选作业标识，把 id 当目标会让"已解出的目标"
+        # 与"未解目标"两个集合对不上，已解出的目标会被反复送去猜（审计 P0 第 2 条）。
+        solved: set[str] = {
+            str(t.get("target") or target_of(str(t.get("id"))))
+            for t in traces if t.get("verified") is True
+        }
         report.solved_targets = sorted(solved)
         if self._solved_prev is not None:
             # 跨轮 cover：本轮（有库）− 上一轮（无库/旧库）。
@@ -402,7 +662,10 @@ class RoundRunner:
         # ② 需求
         demand_report = self.demand(traces)
         report.demand = {k: demand_report[k] for k in
-                         ("traces", "verified_traces", "signatures", "buckets", "demand_count")}
+                         ("traces", "verified_traces", "distinct_targets", "signatures",
+                          "buckets", "demand_count")}
+        if demand_report.get("problems"):
+            report.reasons["demand:missing_target"] = len(demand_report["problems"])
         demand_sigs = [e["sig"] for e in demand_report.get("top_demand", [])][: cfg.demand_limit]
 
         # ③ 猜想（条件化在未解目标 + 需求 + 库范例）
@@ -415,9 +678,14 @@ class RoundRunner:
         # ⑤⑥⑦ 求解 / 验证 / 软分
         verified = self.prove_verify_measure(survivors, report)
 
-        # ⑧⑨ 选择 + 物化入库（记忆注入在下一轮自动生效）
-        selected, gains = self.select(verified, len(library))
-        written = self.commit(selected)
+        # ⑧⑨ 淘汰 + 选择 + 物化入库（记忆注入在下一轮自动生效）
+        evicted = self.evict(report)
+        if evicted:
+            library = load_library(self.library_path)
+            self.log(f"[round {cfg.round_index}] 冷存 {len(evicted)} 条僵尸引理（reuse=0）")
+        selected, gains, selection = self.select(verified, library, traces)
+        report.selection = selection
+        written = self.commit(selected, report)
         report.selected = [{"stmt": c["stmt"], "target": c["target"],
                             "proof_steps": c.get("proof_steps")} for c in selected]
         library_after = load_library(self.library_path)

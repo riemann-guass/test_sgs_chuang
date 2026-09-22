@@ -39,6 +39,7 @@ from sgsr.pipeline.runner import (  # noqa: E402
     TargetSet,
     summarize,
 )
+from sgsr.pipeline.library import LibrarySourceError, assert_clean_sources  # noqa: E402
 from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
 
 DATA = ROOT / "data"
@@ -70,6 +71,14 @@ def main() -> int:
     parser.add_argument("--k", type=int, default=3, help="每条候选让 Solver 出几篇证明")
     parser.add_argument("--n", type=int, default=3, help="每个目标让 Conjecturer 出几条候选")
     parser.add_argument("--library-budget", type=int, default=30, help="库容 B")
+    parser.add_argument("--ctx-tokens", type=int, default=1200,
+                        help="提示词预算（token）：选择层的约束口径")
+    parser.add_argument("--reuse-threshold", type=int, default=2,
+                        help="复用门槛：被至少这么多不同目标引用过才准入")
+    parser.add_argument("--evict-after", type=int, default=3,
+                        help="僵尸淘汰：reuse=0 且入库超过这么多轮 → 冷存")
+    parser.add_argument("--source-corpus", default="C1",
+                        help="本库的来源语料标识（C/C1/C2/C3；写进每条引理供事后审计）")
     parser.add_argument("--library", default=str(DEFAULT_LIBRARY))
     parser.add_argument("--generated", default=str(DEFAULT_GENERATED))
     parser.add_argument("--solve-endpoint", default="http://127.0.0.1:8765/solve")
@@ -83,6 +92,9 @@ def main() -> int:
 
     curriculum_path = Path(args.curriculum)
     # ── 数据角色守卫：不许拿测试集/开发集建库 ──
+    # 两道：① 先按文件名快速拒绝（给出可读的报错）；
+    #        ② 再让 `assert_buildable()` 按**解析后的绝对路径**复核，
+    #           这样把 D/T 复制改名也绕不过去（审计 P0 第 5 条）。
     if "minif2f" in curriculum_path.name.lower():
         print(f"[round] 拒绝：`{curriculum_path.name}` 是 miniF2F（开发/测试集）。")
         print("        按 docs/data-protocol.md，建库只能用课程集 C；")
@@ -90,8 +102,20 @@ def main() -> int:
         return 2
 
     curriculum = TargetSet.load(ROLE_CURRICULUM, curriculum_path)
+    try:
+        curriculum.assert_buildable()
+    except DataRoleError as exc:
+        print(f"[round] 数据角色错误：{exc}")
+        return 2
     library_path = Path(args.library)
     generated_path = Path(args.generated)
+    if library_path.exists():
+        # 读库时复核来源：库里出现 D/T 来源的引理就不许继续（硬约束 1）
+        try:
+            assert_clean_sources(library_path)
+        except LibrarySourceError as exc:
+            print(f"[round] {exc}")
+            return 2
     if args.reset_library and library_path.exists():
         library_path.unlink()
         print(f"[round] 已清空库：{library_path}")
@@ -104,6 +128,10 @@ def main() -> int:
         n_conjecture=args.n,
         library_budget=args.library_budget,
         target_limit=args.target_limit,
+        source_corpus=args.source_corpus,
+        reuse_threshold=args.reuse_threshold,
+        evict_after=args.evict_after,
+        ctx_lemma_tokens=args.ctx_tokens,
     )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = RUNS / f"round_{'mock' if args.expect_mock else 'real'}_{stamp}"

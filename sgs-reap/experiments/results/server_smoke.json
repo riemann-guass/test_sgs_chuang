@@ -1,7 +1,7 @@
 {
-  "elapsed_s": 34.74,
-  "frontend_ms": 15505,
-  "per_request_ms": 1192.7,
+  "elapsed_s": 31.17,
+  "frontend_ms": 13916,
+  "per_request_ms": 1070.5,
   "requests": 16,
   "batched_requests": 13,
   "immediate_errors": 2,
@@ -13,6 +13,11 @@
     {
       "id": "ping",
       "result": {
+        "cheapBatches": [
+          5,
+          7,
+          1
+        ],
         "heartbeats": 4000000,
         "importedModules": 2078,
         "mathlib": false,

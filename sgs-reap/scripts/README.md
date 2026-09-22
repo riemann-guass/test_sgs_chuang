@@ -28,6 +28,7 @@
 | 脚本 | 作用 | 状态 |
 |---|---|---|
 | `run_gate_g3_real.py` | **两臂测量**：有库／无库对照，含环境预检与引用计数。复用判据的测量基础 | ✅ |
+| `run_closure_tests.py` | **闭环核心协议测试**（46 条断言）：目标身份、`ok/verified` 字段、库来源守卫、角色守卫、`.lean` 解析、选择与淘汰、物化往返 | ✅ phase26 |
 | `run_gate_g1.py` | 求解器能力检定（solve_rate 分布）；P2 之后由难度标定吸收 | ✅ |
 | `diagnose_exceptions.py` | 判定预算诊断：把 `exception` 样本用放大预算重测 | ✅ |
 | `run_server_smoke.py` | Lean 服务协议冒烟（`ping`/`check`/`verify`/`trace`/预算） | ✅ |

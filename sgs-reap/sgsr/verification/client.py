@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import time
+from itertools import count
 from pathlib import Path
 
 # 本文件在 `sgsr/verification/` 下，仓库根要往上三层：
@@ -28,6 +29,19 @@ ROOT = Path(__file__).resolve().parents[2]
 SGSLEAN = ROOT / "sgslean"
 RUNS = ROOT / "experiments" / "runs"
 LAKE = os.environ.get("LAKE", "lake")
+
+#: 每个客户端实例一个**独立工作目录**。
+#:
+#: 服务端默认用固定的 `.lake/sgslean-server-work`，多实例同时跑会互相覆盖
+#: `jobs.json` / `out.json`（审计"并发与稳定性"一节：响应串扰或文件覆盖）。
+#: 这里按 pid + 序号分配子目录；同一实例内复用同一个目录，因为服务端每批都要
+#: 把 `sgslean_snippet.lean` / `run_child.cmd` 重新写一遍，换目录会白付一次文件写入
+#: （不影响正确性，只影响几十毫秒）。
+#:
+#: 目录必须**留在 `.lake/` 里面**：子进程是 `lean sgslean_snippet.lean` 驱动的，
+#: 它靠工作目录在项目内才能拿到 lake 给的搜索路径（`LEAN_PATH`）。
+#: 把它挪到系统临时目录会退化成 `unknown module prefix 'SgsLean'`（实测踩过）。
+_WORKDIR_SEQ = count(1)
 
 
 class LeanServerError(RuntimeError):
@@ -79,11 +93,19 @@ class LeanServer:
         self.heartbeats = heartbeats
         self.trivial_heartbeats = trivial_heartbeats
         self.tactic_timeout_ms = tactic_timeout_ms
+        # 默认给每个实例一个独立工作目录（见 `_WORKDIR_SEQ` 的说明）。
+        # 放在 `.lake/` 下：既在项目内（子进程需要），又在 `.gitignore` 里（不入库）。
+        if workdir is None:
+            base = os.environ.get("SGSLEAN_WORKDIR_ROOT") or str(
+                SGSLEAN / ".lake" / "sgslean-server-work"
+            )
+            workdir = os.path.join(base, f"{os.getpid()}-{next(_WORKDIR_SEQ)}")
         self.workdir = workdir
         self.stderr_path = stderr_path
         self.proc: subprocess.Popen | None = None
         self._stderr_file = None
         self.frontend_ms_total = 0
+        self.batch_count = 0
 
     # ---- 生命周期 ----
     def start(self) -> "LeanServer":
@@ -169,6 +191,7 @@ class LeanServer:
             responses[str(item.get("id"))] = item
             if str(item.get("id")) == flush_id:
                 self.frontend_ms_total += int((item.get("result") or {}).get("frontend_ms", 0) or 0)
+        self.batch_count += 1
         return responses
 
     def ping(self) -> dict:

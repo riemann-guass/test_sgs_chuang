@@ -59,6 +59,13 @@ sgs-reap/reap-fork/e2e_raw_tree.json
 
 # ---- 数据（是输入，不是实验产物：必须入库）----
 !sgs-reap/data/*.jsonl
+# 引理库与它的版本快照**必须入库**：硬约束 6 要求"正式数字能由 experiments/results/ 回溯"，
+# 而回溯一个库相关的数字必须能拿到当时那个库。上面的 `*.jsonl` 是给逐条轨迹（可再生产物）写的，
+# 它同时吞掉了 `experiments/library*.jsonl`（审计的"可复现性风险"一节）。
+!sgs-reap/experiments/*.jsonl
+# `experiments/runs/` 是逐条轨迹与中间产物，可再生产物，继续忽略；
+# 排除它与 `runs/` 规则冲突时以更具体的规则为准 —— git 的规则是"最后匹配者胜"。
+!sgs-reap/experiments/results/*.json
 # 原始语料（可复现：见 docs/phase16-log.md 的克隆命令），不入库
 sgs-reap/data/raw/
 
