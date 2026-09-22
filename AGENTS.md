@@ -182,7 +182,11 @@ D:\bianma\code\大创\
 
 **参考基线**：miniF2F valid 修正预算后（k=3）候选级 44/164、目标级 18/57 ≈ 32%；
 近失手（解出率严格介于 0 与 1）约占一成，是唯一有增益信号的区间。
-当前库 `experiments/library.jsonl` 只有 4 条，属开发期产物，按协议须换掉。
+
+**库的现状（2026-09-22 更新）**：原 `experiments/library.jsonl` 的 4 条引理经核对
+**来源是 miniF2F valid（D）**，属开发期产物——已移入 `experiments/library_cold.jsonl`
+（带 `source_corpus: "D"` 与冷存原因），**活动库现在是空的，等 P2 在 C 上重建**。
+新的来源守卫（`library.add_many` 拒收 + `assert_clean_sources` 复核）会直接拒收它们。
 
 ---
 
