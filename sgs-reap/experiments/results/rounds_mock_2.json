@@ -6,25 +6,31 @@
       "targets_solved": 2,
       "cover_delta": null,
       "library_size": 0,
-      "candidates": 4,
-      "passed_hard_gates": 2,
+      "candidates": 0,
+      "passed_hard_gates": 0,
       "verified": 0,
       "library_written": 0,
-      "timing_s": 55.6
+      "reusable": 0,
+      "cited_targets": 0,
+      "prompt_size": 0,
+      "timing_s": 23.2
     },
     {
       "round": 1,
       "targets_solved": 2,
       "cover_delta": 0,
       "library_size": 0,
-      "candidates": 4,
-      "passed_hard_gates": 2,
+      "candidates": 0,
+      "passed_hard_gates": 0,
       "verified": 0,
       "library_written": 0,
-      "timing_s": 55.4
+      "reusable": 0,
+      "cited_targets": 0,
+      "prompt_size": 0,
+      "timing_s": 22.3
     }
   ],
   "curriculum": "data\\lemmas_g1.jsonl",
-  "total_s": 111.0,
+  "total_s": 45.4,
   "library_after": []
 }

@@ -27,6 +27,10 @@
 判定：
 
 * `pass`：漏斗跑通，且**至少入库 1 条**（候选过了全部三件硬门 + 被证明 + 物化成功）；
+* `fail_not_written`：有候选过了验证，却一条都没写进库（来源守卫拦下、或库内重复）
+  ——**这是装置问题，不是"候选太弱"**，以前这里会误报成 pass；
+* `fail_name_mismatch`：物化时发现有条目缺 `name`（名字与库行不一致），
+  下一轮提示词里的名字将在 Lean 环境里不存在；
 * `pass_no_survivor`：漏斗跑通但一条都没活下来（可能是候选太弱，也可能是硬门太严）——
   这不算失败，**漏斗数字本身就是要的产出**；
 * `fail_pipeline`：链路本身坏了（例如所有候选连门检都过不了）。
@@ -47,7 +51,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sgsr.pipeline.library import add_many  # noqa: E402
+from sgsr.utils.http_client import soft_post_json  # noqa: E402
+from sgsr.pipeline.library import add_many, load as load_library, name_for  # noqa: E402
 from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
 
 DATA = ROOT / "data"
@@ -61,22 +66,15 @@ DEFAULT_SOLVE = "http://127.0.0.1:8765/solve"
 
 
 def http_post(url: str, payload: dict, timeout: float = 300.0) -> dict:
-    import urllib.error
-    import urllib.request
-
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return {"error": {"code": f"http_{exc.code}", "message": exc.read().decode("utf-8", "replace")[:300]}}
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"error": {"code": "network", "message": str(exc)}}
+    """软失败 POST。HTTP 实现统一在 `sgsr/models/http.py`（以前这里有第 N 份副本）。"""
+    return soft_post_json(url, payload, timeout=timeout)
 
 
 def solve(endpoint: str, statement: str, k: int) -> tuple[list[str], dict]:
     payload = http_post(endpoint, {"statement": statement, "num_samples": k})
+    if isinstance(payload.get("error"), dict):
+        # 端点故障与"模型没出候选"必须分开：返回空列表会让报告显示"0 条可证"。
+        return [], {**payload, "backend_error": payload["error"]}
     proofs = [p.get("proof", "") for p in (payload.get("proofs") or [])]
     return [p for p in proofs if p.strip()], payload.get("meta") or {}
 
@@ -122,6 +120,9 @@ def main() -> int:
                         help="新颖性对比基准加上整份 hard 目标集（默认只与**父目标**比，见下）")
     parser.add_argument("--endpoint", default=DEFAULT_SOLVE, help="/solve 的 URL")
     parser.add_argument("--library", default=str(ROOT / "experiments" / "library.jsonl"))
+    parser.add_argument("--source-corpus", default="C1",
+                        help="来源语料标识（C/C1/C2/C3）。缺它 `add_many` 会直接拒收——"
+                             "库中绝不允许出现无法事后审计来源的引理。")
     parser.add_argument("--limit", type=int, default=2, help="用几条目标（每目标取全部候选）")
     parser.add_argument("--k", type=int, default=3, help="每条候选让 Solver 出几篇证明")
     parser.add_argument("--imports", default="Mathlib")
@@ -182,6 +183,7 @@ def main() -> int:
             return 1
         entries = [
             {"stmt": row["stmt"], "proof": row["proof"], "verified": True,
+             "name": str(row.get("name") or name_for(str(row["stmt"]))),
              "source": row.get("source", "library")}
             for row in rows
         ]
@@ -209,6 +211,7 @@ def main() -> int:
             "mode": "from_library",
             "library": rel(library_path),
             "materialized": int(result.get("written") or 0),
+            "materialize_missing_name": int(result.get("missingName") or 0),
             "generated_file": rel(GENERATED),
             "generated_compiles": compile_ok,
             "timing": {"total_s": round(time.perf_counter() - started, 1)},
@@ -312,21 +315,31 @@ def main() -> int:
             library_path,
             [
                 {"stmt": c["stmt"], "proof": c["proof"], "verified": True,
-                 "source": f"cand:{c['key']}", "uses": [], "delta_len": None}
+                 # 来源三件套是**强制字段**（`library._check_source`）：缺 `source_target`
+                 # 或 `source_corpus` 会被直接拒收。这条脚本以前正好缺它们，
+                 # phase26 收紧守卫之后它就再也写不进任何东西了——却仍然报 `pass`。
+                 "source": f"cand:{c['key']}",
+                 "source_target": c.get("target", ""),
+                 "source_corpus": args.source_corpus,
+                 "constants": c.get("constants", []), "uses": [], "delta_len": None,
+                 "reuse": 0, "reuse_targets": [], "exposures": 0,
+                 "added_round": 0}
                 for c in verified
             ],
         )
         funnel["library_written"] = written
+        funnel["library_rejected"] = len(rejected)
+        for row in rejected[:5]:
+            reasons[f"add_many:{row['reason']}"] = reasons.get(f"add_many:{row['reason']}", 0) + 1
         # **物化整库，而不是只物化本次的新条目**：`Materialize.emit` 是**重写**整个文件，
         # 只传新条目会让上一轮的引理从 `GeneratedLibrary.lean` 里消失，
         # 而 Python 侧的 `library.jsonl` 还在——两边不一致，处理臂的"库可用"就成了假的。
-        full_library = [
-            json.loads(line)
-            for line in library_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        # 写回库时必须用 `add_many` 的返回值判断，而不是假设"一定写进去了"：
+        # 缺来源字段/未验证/重复的条目会被拒收，静默假设会让报告与磁盘不一致。
+        full_library = load_library(library_path)
         full_entries = [
             {"stmt": row["stmt"], "proof": row["proof"], "verified": True,
+             "name": str(row.get("name") or name_for(str(row["stmt"]))),
              "source": row.get("source", "library")}
             for row in full_library
         ]
@@ -339,6 +352,7 @@ def main() -> int:
         written_names = list(result2.get("names") or [])
         funnel["materialized"] = int(result2.get("written") or 0)
         funnel["library_size_after"] = int(result2.get("written") or 0)
+        funnel["materialize_missing_name"] = int(result2.get("missingName") or 0)
         if not args.skip_compile:
             proc = subprocess.run(
                 ["lake", "build", "SgsLean.GeneratedLibrary"],
@@ -353,8 +367,15 @@ def main() -> int:
     elapsed = time.perf_counter() - started
     if funnel["candidates"] > 0 and funnel["rejected_gate"] == funnel["candidates"]:
         verdict = "fail_pipeline"
-    elif funnel.get("verified", 0) > 0:
+    elif funnel.get("materialize_missing_name", 0) > 0:
+        # 名字与库行不一致 ⟹ 下一轮提示词里给的名字在环境里不存在（假"库没用"）。
+        verdict = "fail_name_mismatch"
+    elif funnel.get("library_written", 0) > 0:
         verdict = "pass"
+    elif funnel.get("verified", 0) > 0:
+        # 有验证过的候选却一条都没入库：这是**守卫拦住了写入**，不是"候选太弱"。
+        # 旧判定在这里给 pass，把"装置坏了"报成了成功。
+        verdict = "fail_not_written"
     else:
         verdict = "pass_no_survivor"
 
@@ -370,7 +391,8 @@ def main() -> int:
         "generated_compiles": compile_ok,
         "library": rel(library_path),
         "verdict": verdict,
-        "criterion": "链路跑通（不是全部候选都在门检被拒）即算跑通；入库 ≥1 条则 pass",
+        "criterion": "入库 ≥1 条才 pass；验证过但一条没写进库 = fail_not_written；"
+                     "名字与库行不一致 = fail_name_mismatch",
         "timing": {"total_s": round(elapsed, 1)},
         "detail": [
             {k: c.get(k) for k in ("key", "target", "stmt", "gate", "gate_detail", "trivial",
@@ -387,6 +409,9 @@ def main() -> int:
     if verified:
         print(f"[lib] 物化 {funnel.get('materialized', 0)} 条 → {GENERATED.name}；编译校验 {compile_ok}")
     print(f"[lib] 判定：{verdict}；报告 {out_path}")
+    if verdict in ("fail_not_written", "fail_name_mismatch"):
+        print("[lib] 提示：以上两条都表示**装置**有问题（来源守卫/名字），"
+              "不是模型能力问题；请先修装置再重跑。")
     return 0 if verdict in ("pass", "pass_no_survivor") else 1
 
 

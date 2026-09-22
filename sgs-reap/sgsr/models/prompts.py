@@ -16,10 +16,15 @@ from __future__ import annotations
 
 import re
 
+from sgsr.data.lean_parse import DECL_RE, close_declaration
+
 NO_RELEVANCE_SCORE_FOUND = -1113.0
 NO_REDUNDANCY_SCORE_FOUND = -1111.0
 NO_CONCLUSION_COMPLEXITY_SCORE_FOUND = -1112.0
 NO_GUIDE_SCORE_FOUND = -1234567890.0
+
+#: 独立的 `by` 前缀（后面不是标识符字符）。`by_cases` / `by_contra` 不算前缀。
+_BY_PREFIX_RE = re.compile(r"^by\b")
 
 
 def conjecture_prompt(
@@ -104,47 +109,22 @@ def extract_propositions(generation: str) -> list[str]:
 
 
 def _strip_declaration(text: str) -> str:
-    """若模型输出了完整定理声明，尝试还原成命题。"""
+    """若模型输出了完整定理声明，尝试还原成命题。
+
+    解析规则与 `sgsr/data/lean_parse.py` **共用同一份实现**。此前这里是第二份
+    "声明 → 命题"的代码（产出 `(n : Nat) → P`），而 `prover.close_declaration`
+    产出 `∀ n : Nat, P`；两份都会随改动漂开，而"模型输出的命题"与"求解器解析出的
+    命题"一旦不一致，pass@k 就不再是同一件事。
+    """
     text = text.strip()
     for marker in (":= by", ":="):
         idx = text.find(marker)
         if idx != -1:
             text = text[:idx]
-    match = re.match(r"^\s*(?:@\[[^\]]*\]\s*)?(theorem|lemma|example)\b", text)
-    if not match:
-        return text
-    text = text[match.end():].strip()
-    parts = text.split(None, 1)
-    if len(parts) == 2 and ":" not in parts[0]:
-        text = parts[1]
-    binders: list[str] = []
-    while text.startswith("("):
-        depth = 0
-        close = -1
-        for i, ch in enumerate(text):
-            if ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                if depth == 0:
-                    close = i
-                    break
-        if close == -1:
             break
-        binders.append(text[: close + 1])
-        text = text[close + 1:].strip()
-    while text[:1] in ("{", "["):
-        close_ch = "}" if text[0] == "{" else "]"
-        idx = text.find(close_ch)
-        if idx == -1:
-            break
-        binders.append(text[: idx + 1])
-        text = text[idx + 1:].strip()
-    if text.startswith(":"):
-        text = text[1:].strip()
-    if not binders:
+    if not DECL_RE.match(text):
         return text
-    return " ".join(binders) + " → " + text
+    return close_declaration(text) or text
 
 
 def guide_prompt(target: str, conjecture: str) -> str:
@@ -300,8 +280,11 @@ def extract_proofs(generation: str) -> list[str]:
     proofs: list[str] = []
     for block in re.findall(r"```(?:lean4|lean)\s*(.*?)```", generation, flags=re.DOTALL):
         text = block.strip()
-        if text.startswith("by"):
-            text = text[2:].lstrip()
+        # 只剥**独立的** `by` 前缀。不能写成 `startswith("by")`：那会把 `by_cases`、
+        # `by_contra` 这类 tactic 名的头两个字母削掉（`by_cases h : P` → `_cases h : P`），
+        # 于是一条合法证明被判成"模型证不出"——实测踩过。
+        if _BY_PREFIX_RE.match(text):
+            text = _BY_PREFIX_RE.sub("", text, count=1).lstrip()
         if not text:
             continue
         proofs.append(text)

@@ -19,10 +19,10 @@
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+
+from sgsr.utils.http_client import soft_post_json
 
 
 @dataclass
@@ -63,18 +63,13 @@ def build_payload(
 
 
 def post(endpoint: str, payload: dict, timeout: float = 300.0) -> dict:
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        endpoint, data=body, headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
-        return {"error": {"code": f"http_{exc.code}", "message": raw[:400]}}
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"error": {"code": "network", "message": str(exc)}}
+    """软失败 POST：错误收进 `{"error": {...}}`。
+
+    保留软语义是因为调用方（`run_conjecture.py`）要把**每一条目标**的失败原因写进
+    报告；但闭环侧（`runner.conjecture`）**必须**把 `error` 计成 `backend_error`，
+    不许与"模型没出候选"混在一起——见 `runner.round` 的 `protocol/backend` 计数。
+    """
+    return soft_post_json(endpoint, payload, timeout=timeout)
 
 
 def load_demand(demand_path: str | Path, limit: int = 8) -> list[str]:

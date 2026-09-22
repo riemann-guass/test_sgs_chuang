@@ -70,18 +70,28 @@ score(l) = reuse(l) / cost(l)
 
 - **Lean 侧**：门检 `Gate`、内核终检 `Verify`、非平凡 `Trivial`、新颖 `Novelty`、
   廉价 tactic 兜底 `Trivial.tryCheapTactics`、软分测量 `Measure`、物化 `Materialize`、
-  轨迹 `Trace`、stdio JSON 服务 `Server`（协议 v1.2，含 `cheap` 命令）
+  轨迹 `Trace`（含证明项常量，供复用测量）、stdio JSON 服务 `Server`
+  （协议 v1.2，含 `cheap` / `cheap_verify` 命令；**一个作业一个 command**，心跳按条复位）
 - **Python 侧**：模型代理与假服务、提示词与解析、需求挖掘、猜想、库读写、
   覆盖度与选择、**闭环编排**（十步一环）、**在线九步证明器**
   （`prover` · `retrieval` · `repair` + `scripts/prove.py` / `run_prover_eval.py`）
-- **测量装置**：两臂覆盖测量，含环境预检与引用计数
+- **选择层真接线**：准入（探索额度）· 复用测量（按**不同目标**的**通过验收**证明计数）·
+  复用/曝光落盘 · 僵尸淘汰（要求"被给过机会"）· 提示词注入（`reuse/cost` 密度贪心）
+- **测量装置**：两臂覆盖测量，含环境预检与引用计数；批量评测报三个口径的 pass@k
+- **公共入口**：`sgsr/utils/http_client.py`（HTTP）· `sgsr/verification/client.py`
+  （Lean 常驻客户端 + 预检）· `sgsr/data/lean_parse.py`（声明→命题）
+- **测试**：`scripts/run_closure_tests.py` 60 条断言（含准入/复用/物化往返）
 
 **待建**（见思路文档第二版第 9 节）：
 
-1. **P1 真模型数字**：九步已实现并通过离线验证，但 pass@k 与成本要由能出网的进程跑
+1. **P1 真模型数字**：装置已修好，但 pass@k 与成本要由能出网的进程重跑
+   （旧的一份是 phase26 之前的产物，且库与评测集同源，不能当基线）
 2. **P2 小实验台**：数据准备、难度标定、复用判据接线、库 ≤100 条
 3. **P3 三组对照**：A（SGS 原样，LLM 打分）／B（复用判据 + 需求）／C（随机伪需求消融）
 4. **P4 成本与复用分析**、**P5 写作**
+
+**已知的最大工程缺口**：Lean 子进程仍不常驻——每批实验都要重付一次 Mathlib 导入
+（实测 75 s 量级）。上游 SGS 用的是持久化 REPL，这是下一件首要工作。
 
 参考基线：miniF2F **valid** 修正预算后（k=3）候选级 44/164、目标级 18/57 ≈ 32%；
 "近失手"（解出率严格介于 0 与 1）约占一成，是唯一有增益信号的区间。
@@ -121,6 +131,10 @@ lake build SgsLean.GeneratedLibrary   # 库目标不编这个模块，必须点�
 cd ..
 & $py sgsr\models\mock_server.py --port 8765
 & $py scripts\run_round.py --rounds 2 --target-limit 2 --k 1 --n 2 --imports none --expect-mock
+
+# 闭环核心协议自检（纯 Python，秒级）
+$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"
+& $py scripts\run_closure_tests.py --no-lean
 
 # 真实模型（需网络权限；密钥在 sgsr\models\.env，不入库）
 & $py sgsr\models\proxy.py --port 8770

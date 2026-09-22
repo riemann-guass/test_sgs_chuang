@@ -1,4 +1,5 @@
 {"id": "aime_1983_p9", "statement": "∀ (x : ℝ) (h₀ : 0 < x ∧ x < Real.pi), 12 ≤ (9 * (x ^ 2 * Real.sin x ^ 2) + 4) / (x * Real.sin x)", "source": "miniF2F/valid", "split": "valid"}
+{"id": "aime_1984_p15", "statement": "∀ (x y z w : ℝ) (h₀ : x ^ 2 / (2 ^ 2 - 1) + y ^ 2 / (2 ^ 2 - 3 ^ 2) + z ^ 2 / (2 ^ 2 - 5 ^ 2) + w ^ 2 / (2 ^ 2 - 7 ^ 2) = 1) (h₁ : x ^ 2 / (4 ^ 2 - 1) + y ^ 2 / (4 ^ 2 - 3 ^ 2) + z ^ 2 / (4 ^ 2 - 5 ^ 2) + w ^ 2 / (4 ^ 2 - 7 ^ 2) = 1) (h₂ : x ^ 2 / (6 ^ 2 - 1) + y ^ 2 / (6 ^ 2 - 3 ^ 2) + z ^ 2 / (6 ^ 2 - 5 ^ 2) + w ^ 2 / (6 ^ 2 - 7 ^ 2) = 1) (h₃ : x ^ 2 / (8 ^ 2 - 1) + y ^ 2 / (8 ^ 2 - 3 ^ 2) + z ^ 2 / (8 ^ 2 - 5 ^ 2) + w ^ 2 / (8 ^ 2 - 7 ^ 2) = 1), x ^ 2 + y ^ 2 + z ^ 2 + w ^ 2 = 36", "source": "miniF2F/valid", "split": "valid"}
 {"id": "aime_1984_p5", "statement": "∀ (a b : ℝ) (h₀ : Real.logb 8 a + Real.logb 4 (b ^ 2) = 5) (h₁ : Real.logb 8 b + Real.logb 4 (a ^ 2) = 7), a * b = 512", "source": "miniF2F/valid", "split": "valid"}
 {"id": "aime_1987_p8", "statement": "IsGreatest { n : ℕ | 0 < n ∧ ∃! k : ℕ, (8 : ℝ) / 15 < n / (n + k) ∧ (n : ℝ) / (n + k) < 7 / 13 } 112", "source": "miniF2F/valid", "split": "valid"}
 {"id": "aime_1988_p3", "statement": "∀ (x : ℝ) (h₀ : 0 < x) (h₁ : Real.logb 2 (Real.logb 8 x) = Real.logb 8 (Real.logb 2 x)), Real.logb 2 x ^ 2 = 27", "source": "miniF2F/valid", "split": "valid"}
@@ -8,6 +9,7 @@
 {"id": "aime_1991_p6", "statement": "∀ (r : ℝ) (h₀ : (∑ k ∈ Finset.Icc (19 : ℕ) 91, Int.floor (r + k / 100)) = 546), Int.floor (100 * r) = 743", "source": "miniF2F/valid", "split": "valid"}
 {"id": "aime_1994_p4", "statement": "∀ (n : ℕ) (h₀ : 0 < n) (h₀ : (∑ k ∈ Finset.Icc 1 n, Int.floor (Real.logb 2 k)) = 1994), n = 312", "source": "miniF2F/valid", "split": "valid"}
 {"id": "aime_1996_p5", "statement": "∀ (a b c r s t : ℝ) (f g : ℝ → ℝ) (h₀ : ∀ x, f x = x ^ 3 + 3 * x ^ 2 + 4 * x - 11) (h₁ : ∀ x, g x = x ^ 3 + r * x ^ 2 + s * x + t) (h₂ : f a = 0) (h₃ : f b = 0) (h₄ : f c = 0) (h₅ : g (a + b) = 0) (h₆ : g (b + c) = 0) (h₇ : g (c + a) = 0) (h₈ : List.Pairwise (· ≠ ·) [a, b, c]), t = 23", "source": "miniF2F/valid", "split": "valid"}
+{"id": "aime_1997_p11", "statement": "∀ (x : ℝ) (h₀ : x = (∑ n ∈ Finset.Icc (1 : ℕ) 44, Real.cos (n * π / 180)) / ∑ n ∈ Finset.Icc (1 : ℕ) 44, Real.sin (n * π / 180)), Int.floor (100 * x) = 241", "source": "miniF2F/valid", "split": "valid"}
 {"id": "aimeI_2000_p7", "statement": "∀ (x y z : ℝ) (m : ℚ) (h₀ : 0 < x ∧ 0 < y ∧ 0 < z) (h₁ : x * y * z = 1) (h₂ : x + 1 / z = 5) (h₃ : y + 1 / x = 29) (h₄ : z + 1 / y = m) (h₅ : 0 < m), ↑m.den + m.num = 5", "source": "miniF2F/valid", "split": "valid"}
 {"id": "aimeII_2001_p3", "statement": "∀ (x : ℕ → ℤ) (h₀ : x 1 = 211) (h₂ : x 2 = 375) (h₃ : x 3 = 420) (h₄ : x 4 = 523) (h₆ : ∀ n ≥ 5, x n = x (n - 1) - x (n - 2) + x (n - 3) - x (n - 4)), x 531 + x 753 + x 975 = 898", "source": "miniF2F/valid", "split": "valid"}
 {"id": "aimeII_2020_p6", "statement": "∀ (t : ℕ → ℚ) (h₀ : t 1 = 20) (h₁ : t 2 = 21) (h₂ : ∀ n ≥ 3, t n = (5 * t (n - 1) + 1) / (25 * t (n - 2))), ↑(t 2020).den + (t 2020).num = 626", "source": "miniF2F/valid", "split": "valid"}
@@ -63,8 +65,10 @@
 {"id": "amc12a_2019_p21", "statement": "∀ (z : ℂ) (h₀ : z = (1 + Complex.I) / Real.sqrt 2), ((∑ k ∈ Finset.Icc 1 12, z ^ k ^ 2) * (∑ k ∈ Finset.Icc 1 12, 1 / z ^ k ^ 2)) = 36", "source": "miniF2F/valid", "split": "valid"}
 {"id": "amc12a_2019_p9", "statement": "∀ (a : ℕ → ℚ) (h₀ : a 1 = 1) (h₁ : a 2 = 3 / 7) (h₂ : ∀ n, a (n + 2) = a n * a (n + 1) / (2 * a n - a (n + 1))), ↑(a 2019).den + (a 2019).num = 8078", "source": "miniF2F/valid", "split": "valid"}
 {"id": "amc12a_2020_p13", "statement": "∀ (a b c : ℕ) (n : NNReal) (h₀ : n ≠ 1) (h₁ : 1 < a ∧ 1 < b ∧ 1 < c) (h₂ : (n * (n * n ^ (1 / c)) ^ (1 / b)) ^ (1 / a) = (n ^ 25) ^ (1 / 36)), b = 3", "source": "miniF2F/valid", "split": "valid"}
+{"id": "amc12a_2020_p21", "statement": "∀ (S : Finset ℕ) (h₀ : ∀ n : ℕ, n ∈ S ↔ 5 ∣ n ∧ Nat.lcm 5! n = 5 * Nat.gcd 10! n), S.card = 48", "source": "miniF2F/valid", "split": "valid"}
 {"id": "amc12a_2021_p7", "statement": "∀ (x y : ℝ), 1 ≤ (x * y - 1) ^ 2 + (x + y) ^ 2", "source": "miniF2F/valid", "split": "valid"}
 {"id": "amc12b_2002_p11", "statement": "∀ (a b : ℕ) (h₀ : Nat.Prime a) (h₁ : Nat.Prime b) (h₂ : Nat.Prime (a + b)) (h₃ : Nat.Prime (a - b)), Nat.Prime (a + b + (a - b + (a + b)))", "source": "miniF2F/valid", "split": "valid"}
+{"id": "amc12b_2002_p3", "statement": "∀ (S : Finset ℕ) (h₀ : ∀ n : ℕ, n ∈ S ↔ 0 < n ∧ Nat.Prime (n ^ 2 + 2 - 3 * n)), S.card = 1", "source": "miniF2F/valid", "split": "valid"}
 {"id": "amc12b_2002_p6", "statement": "∀ (a b : ℝ) (h₀ : a ≠ 0 ∧ b ≠ 0) (h₁ : ∀ x, x ^ 2 + a * x + b = (x - a) * (x - b)), a = 1 ∧ b = -2", "source": "miniF2F/valid", "split": "valid"}
 {"id": "amc12b_2003_p17", "statement": "∀ (x y : ℝ) (h₀ : 0 < x ∧ 0 < y) (h₁ : Real.log (x * y ^ 3) = 1) (h₂ : Real.log (x ^ 2 * y) = 1), Real.log (x * y) = 3 / 5", "source": "miniF2F/valid", "split": "valid"}
 {"id": "amc12b_2003_p6", "statement": "∀ (a r : ℝ) (u : ℕ → ℝ) (h₀ : ∀ k, u k = a * r ^ k) (h₁ : u 1 = 2) (h₂ : u 3 = 6), u 0 = 2 / Real.sqrt 3 ∨ u 0 = -(2 / Real.sqrt 3)", "source": "miniF2F/valid", "split": "valid"}
@@ -73,8 +77,11 @@
 {"id": "amc12b_2020_p5", "statement": "∀ (a b : ℕ) (h₀ : (5 : ℚ) / 8 * b = 2 / 3 * a + 7) (h₁ : (b : ℚ) - 5 / 8 * b = a - 2 / 3 * a + 7), a = 42", "source": "miniF2F/valid", "split": "valid"}
 {"id": "amc12b_2021_p21", "statement": "∀ (S : Finset ℝ) (h₀ : ∀ x : ℝ, x ∈ S ↔ 0 < x ∧ x ^ (2 : ℝ) ^ Real.sqrt 2 = Real.sqrt 2 ^ (2 : ℝ) ^ x), (↑2 ≤ ∑ k ∈ S, k) ∧ (∑ k ∈ S, k) < 6", "source": "miniF2F/valid", "split": "valid"}
 {"id": "imo_1961_p1", "statement": "∀ (x y z a b : ℝ) (h₀ : 0 < x ∧ 0 < y ∧ 0 < z) (h₁ : x ≠ y) (h₂ : y ≠ z) (h₃ : z ≠ x) (h₄ : x + y + z = a) (h₅ : x ^ 2 + y ^ 2 + z ^ 2 = b ^ 2) (h₆ : x * y = z ^ 2), 0 < a ∧ b ^ 2 < a ^ 2 ∧ a ^ 2 < 3 * b ^ 2", "source": "miniF2F/valid", "split": "valid"}
+{"id": "imo_1962_p4", "statement": "∀ (S : Set ℝ) (h₀ : S = { x : ℝ | Real.cos x ^ 2 + Real.cos (2 * x) ^ 2 + Real.cos (3 * x) ^ 2 = 1 }), S = { x : ℝ | ∃ m : ℤ, x = π / 2 + m * π ∨ x = π / 4 + m * π / 2 ∨ x = π / 6 + m * π / 6 ∨ x = 5 * π / 6 + m * π / 6 }", "source": "miniF2F/valid", "split": "valid"}
 {"id": "imo_1964_p1_1", "statement": "∀ (n : ℕ) (h₀ : 7 ∣ 2 ^ n - 1), 3 ∣ n", "source": "miniF2F/valid", "split": "valid"}
 {"id": "imo_1964_p1_2", "statement": "∀ (n : ℕ), ¬7 ∣ 2 ^ n + 1", "source": "miniF2F/valid", "split": "valid"}
+{"id": "imo_1965_p1", "statement": "∀ (x : ℝ) (h₀ : 0 ≤ x) (h₁ : x ≤ 2 * π) (h₂ : 2 * Real.cos x ≤ abs (Real.sqrt (1 + Real.sin (2 * x)) - Real.sqrt (1 - Real.sin (2 * x)))) (h₃ : abs (Real.sqrt (1 + Real.sin (2 * x)) - Real.sqrt (1 - Real.sin (2 * x))) ≤ Real.sqrt 2), π / 4 ≤ x ∧ x ≤ 7 * π / 4", "source": "miniF2F/valid", "split": "valid"}
+{"id": "imo_1966_p4", "statement": "∀ (n : ℕ) (x : ℝ) (h₀ : ∀ k : ℕ, 0 < k → ∀ m : ℤ, x ≠ m * π / 2 ^ k) (h₁ : 0 < n), (∑ k ∈ Finset.Icc 1 n, 1 / Real.sin (2 ^ k * x)) = 1 / Real.tan x - 1 / Real.tan (2 ^ n * x)", "source": "miniF2F/valid", "split": "valid"}
 {"id": "imo_1966_p5", "statement": "∀ (x a : ℕ → ℝ) (h₀ : a 1 ≠ a 2) (h₁ : a 1 ≠ a 3) (h₂ : a 1 ≠ a 4) (h₃ : a 2 ≠ a 3) (h₄ : a 2 ≠ a 4) (h₅ : a 3 ≠ a 4) (h₆ : a 1 > a 2) (h₇ : a 2 > a 3) (h₈ : a 3 > a 4) (h₉ : abs (a 1 - a 2) * x 2 + abs (a 1 - a 3) * x 3 + abs (a 1 - a 4) * x 4 = 1) (h₁₀ : abs (a 2 - a 1) * x 1 + abs (a 2 - a 3) * x 3 + abs (a 2 - a 4) * x 4 = 1) (h₁₁ : abs (a 3 - a 1) * x 1 + abs (a 3 - a 2) * x 2 + abs (a 3 - a 4) * x 4 = 1) (h₁₂ : abs (a 4 - a 1) * x 1 + abs (a 4 - a 2) * x 2 + abs (a 4 - a 3) * x 3 = 1), x 2 = 0 ∧ x 3 = 0 ∧ x 1 = 1 / abs (a 1 - a 4) ∧ x 4 = 1 / abs (a 1 - a 4)", "source": "miniF2F/valid", "split": "valid"}
 {"id": "imo_1967_p3", "statement": "∀ (k m n : ℕ) (c : ℕ → ℕ) (h₀ : 0 < k ∧ 0 < m ∧ 0 < n) (h₁ : ∀ s, c s = s * (s + 1)) (h₂ : Nat.Prime (k + m + 1)) (h₃ : n + 1 < k + m + 1), (∏ i ∈ Finset.Icc 1 n, c i) ∣ ∏ i ∈ Finset.Icc 1 n, c (m + i) - c k", "source": "miniF2F/valid", "split": "valid"}
 {"id": "imo_1973_p3", "statement": "∀ (a b : ℝ) (h₀ : ∃ x, x ^ 4 + a * x ^ 3 + b * x ^ 2 + a * x + 1 = 0), 4 / 5 ≤ a ^ 2 + b ^ 2", "source": "miniF2F/valid", "split": "valid"}
@@ -92,6 +99,7 @@
 {"id": "induction_divisibility_3div2tooddnp1", "statement": "∀ (n : ℕ), 3 ∣ 2 ^ (2 * n + 1) + 1", "source": "miniF2F/valid", "split": "valid"}
 {"id": "induction_divisibility_3divnto3m2n", "statement": "∀ (n : ℕ), 3 ∣ n ^ 3 + 2 * n", "source": "miniF2F/valid", "split": "valid"}
 {"id": "induction_divisibility_9div10tonm1", "statement": "∀ (n : ℕ) (h₀ : 0 < n), 9 ∣ 10 ^ n - 1", "source": "miniF2F/valid", "split": "valid"}
+{"id": "induction_ineq_nsqlefactn", "statement": "∀ (n : ℕ) (h₀ : 4 ≤ n), n ^ 2 ≤ n !", "source": "miniF2F/valid", "split": "valid"}
 {"id": "induction_seq_mul2pnp1", "statement": "∀ (n : ℕ) (u : ℕ → ℕ) (h₀ : u 0 = 0) (h₁ : ∀ n, u (n + 1) = 2 * u n + (n + 1)), u n = 2 ^ (n + 1) - (n + 2)", "source": "miniF2F/valid", "split": "valid"}
 {"id": "induction_sum2kp1npqsqm1", "statement": "∀ (n : ℕ), ∑ k ∈ Finset.range n, (2 * k + 3) = (n + 1) ^ 2 - 1", "source": "miniF2F/valid", "split": "valid"}
 {"id": "induction_sum_1oktkp1", "statement": "∀ (n : ℕ), (∑ k ∈ Finset.range n, (1 : ℝ) / ((k + 1) * (k + 2))) = n / (n + 1)", "source": "miniF2F/valid", "split": "valid"}
@@ -131,6 +139,7 @@
 {"id": "mathd_algebra_267", "statement": "∀ (x : ℝ) (h₀ : x ≠ 1) (h₁ : x ≠ -2) (h₂ : (x + 1) / (x - 1) = (x - 2) / (x + 2)), x = 0", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_28", "statement": "∀ (c : ℝ) (f : ℝ → ℝ) (h₀ : ∀ x, f x = 2 * x ^ 2 + 5 * x + c) (h₁ : ∃ x, f x ≤ 0), c ≤ 25 / 8", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_282", "statement": "∀ (f : ℝ → ℝ) (h₀ : ∀ x : ℝ, ¬ (Irrational x) → f x = abs (Int.floor x)) (h₁ : ∀ x, Irrational x → f x = (Int.ceil x) ^ 2), f (8 ^ (1 / 3)) + f (-Real.pi) + f (Real.sqrt 50) + f (9 / 2) = 79", "source": "miniF2F/valid", "split": "valid"}
+{"id": "mathd_algebra_31", "statement": "∀ (x : NNReal) (u : ℕ → NNReal) (h₀ : ∀ n, u (n + 1) = NNReal.sqrt (x + u n)) (h₁ : Filter.Tendsto u Filter.atTop (𝓝 9)), 9 = NNReal.sqrt (x + 9)", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_323", "statement": "∀ (σ : Equiv ℝ ℝ) (h : ∀ x, σ.1 x = x ^ 3 - 8), σ.2 (σ.1 (σ.2 19)) = 3", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_327", "statement": "∀ (a : ℝ) (h₀ : 1 / 5 * abs (9 + 2 * a) < 1), -7 < a ∧ a < -2", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_35", "statement": "∀ (p q : ℝ → ℝ) (h₀ : ∀ x, p x = 2 - x ^ 2) (h₁ : ∀ x : ℝ, x ≠ 0 → q x = 6 / x), p (q 2) = -7", "source": "miniF2F/valid", "split": "valid"}
@@ -147,11 +156,13 @@
 {"id": "mathd_algebra_455", "statement": "∀ (x : ℝ) (h₀ : 2 * (2 * (2 * (2 * x))) = 48), x = 3", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_462", "statement": "((1 : ℚ) / 2 + 1 / 3) * (1 / 2 - 1 / 3) = 5 / 36", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_48", "statement": "∀ (q e : ℂ) (h₀ : q = 9 - 4 * Complex.I) (h₁ : e = -3 - 4 * Complex.I), q - e = 12", "source": "miniF2F/valid", "split": "valid"}
+{"id": "mathd_algebra_480", "statement": "∀ (f : ℝ → ℝ) (h₀ : ∀ x < 0, f x = -x ^ 2 - 1) (h₁ : ∀ x, 0 ≤ x ∧ x < 4 → f x = 2) (h₂ : ∀ x ≥ 4, f x = Real.sqrt x), f π = 2", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_482", "statement": "∀ (m n : ℕ) (k : ℝ) (f : ℝ → ℝ) (h₀ : Nat.Prime m) (h₁ : Nat.Prime n) (h₂ : ∀ x, f x = x ^ 2 - 12 * x + k) (h₃ : f m = 0) (h₄ : f n = 0) (h₅ : m ≠ n), k = 35", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_493", "statement": "∀ (f : ℝ → ℝ) (h₀ : ∀ x, f x = x ^ 2 - 4 * Real.sqrt x + 1), f (f 4) = 70", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_509", "statement": "Real.sqrt ((5 / Real.sqrt 80 + Real.sqrt 845 / 9 + Real.sqrt 45) / Real.sqrt 5) = 13 / 6", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_51", "statement": "∀ (a b : ℝ) (h₀ : 0 < a ∧ 0 < b) (h₁ : a + b = 35) (h₂ : a = 2 / 5 * b), b - a = 15", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_510", "statement": "∀ (x y : ℝ) (h₀ : x + y = 13) (h₁ : x * y = 24), Real.sqrt (x ^ 2 + y ^ 2) = 11", "source": "miniF2F/valid", "split": "valid"}
+{"id": "mathd_algebra_536", "statement": "↑3! * ((2 : ℝ) ^ 3 + Real.sqrt 9) / 2 = (33 : ℝ)", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_547", "statement": "∀ (x y : ℝ) (h₀ : x = 5) (h₁ : y = 2), Real.sqrt (x ^ 3 - 2 ^ y) = 11", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_55", "statement": "∀ (q p : ℝ) (h₀ : q = 2 - 4 + 6 - 8 + 10 - 12 + 14) (h₁ : p = 3 - 6 + 9 - 12 + 15 - 18 + 21), q / p = 2 / 3", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_algebra_568", "statement": "∀ (a : ℝ), (a - 1) * (a + 1) * (a + 2) - (a - 2) * (a + 1) = a ^ 3 + a ^ 2", "source": "miniF2F/valid", "split": "valid"}
@@ -174,6 +185,7 @@
 {"id": "mathd_numbertheory_149", "statement": "(∑ k ∈ Finset.filter (fun x => x % 8 = 5 ∧ x % 6 = 3) (Finset.range 50), k) = 66", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_155", "statement": "Finset.card (Finset.filter (fun x => x % 19 = 7) (Finset.Icc 100 999)) = 48", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_156", "statement": "∀ (n : ℕ) (h₀ : 0 < n), Nat.gcd (n + 7) (2 * n + 1) ≤ 13", "source": "miniF2F/valid", "split": "valid"}
+{"id": "mathd_numbertheory_169", "statement": "Nat.gcd 20! 200000 = 40000", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_188", "statement": "Nat.gcd 180 168 = 12", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_198", "statement": "5 ^ 2005 % 100 = 25", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_200", "statement": "139 % 11 = 7", "source": "miniF2F/valid", "split": "valid"}
@@ -184,6 +196,7 @@
 {"id": "mathd_numbertheory_232", "statement": "∀ (x y z : ZMod 31) (h₀ : x = 3⁻¹) (h₁ : y = 5⁻¹) (h₂ : z = (x + y)⁻¹), z = 29", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_236", "statement": "1999 ^ 2000 % 5 = 1", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_24", "statement": "(∑ k ∈ Finset.Icc 1 9, 11 ^ k) % 100 = 59", "source": "miniF2F/valid", "split": "valid"}
+{"id": "mathd_numbertheory_252", "statement": "7! % 23 = 3", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_257", "statement": "∀ (x : ℕ) (h₀ : 1 ≤ x ∧ x ≤ 100) (h₁ : 77 ∣ (∑ k ∈ Finset.range 101, k) - x), x = 45", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_269", "statement": "(2005 ^ 2 + 2005 ^ 0 + 2005 ^ 0 + 2005 ^ 5) % 100 = 52", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_284", "statement": "∀ (a b : ℕ) (h₀ : 1 ≤ a ∧ a ≤ 9 ∧ b ≤ 9) (h₁ : 10 * a + b = 2 * (a + b)), 10 * a + b = 18", "source": "miniF2F/valid", "split": "valid"}
@@ -201,6 +214,7 @@
 {"id": "mathd_numbertheory_405", "statement": "∀ (a b c : ℕ) (t : ℕ → ℕ) (h₀ : t 0 = 0) (h₁ : t 1 = 1) (h₂ : ∀ n > 1, t n = t (n - 2) + t (n - 1)) (h₃ : a ≡ 5 [MOD 16]) (h₄ : b ≡ 10 [MOD 16]) (h₅ : c ≡ 15 [MOD 16]), (t a + t b + t c) % 7 = 5", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_412", "statement": "∀ (x y : ℤ) (h₀ : x % 19 = 4) (h₁ : y % 19 = 7), (x + 1) ^ 2 * (y + 5) ^ 3 % 19 = 13", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_42", "statement": "∀ (S : Set ℕ) (u v : ℕ) (h₀ : ∀ a : ℕ, a ∈ S ↔ 0 < a ∧ 27 * a % 40 = 17) (h₁ : IsLeast S u) (h₂ : IsLeast (S \\ {u}) v), u + v = 62", "source": "miniF2F/valid", "split": "valid"}
+{"id": "mathd_numbertheory_43", "statement": "IsGreatest { n : ℕ | 15 ^ n ∣ 942! } 233", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_45", "statement": "Nat.gcd 6432 132 + 11 = 23", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_458", "statement": "∀ (n : ℕ) (h₀ : n % 8 = 7), n % 4 = 3", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_461", "statement": "∀ (n : ℕ) (h₀ : n = Finset.card (Finset.filter (fun x => Nat.gcd x 8 = 1) (Finset.Icc 1 7))), 3 ^ n % 8 = 1", "source": "miniF2F/valid", "split": "valid"}
@@ -214,6 +228,7 @@
 {"id": "mathd_numbertheory_668", "statement": "∀ (l r : ZMod 7) (h₀ : l = (2 + 3)⁻¹) (h₁ : r = 2⁻¹ + 3⁻¹), l - r = 1", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_690", "statement": "IsLeast { a : ℕ | 0 < a ∧ a ≡ 2 [MOD 3] ∧ a ≡ 4 [MOD 5] ∧ a ≡ 6 [MOD 7] ∧ a ≡ 8 [MOD 9] } 314", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_709", "statement": "∀ (n : ℕ) (h₀ : 0 < n) (h₁ : Finset.card (Nat.divisors (2 * n)) = 28) (h₂ : Finset.card (Nat.divisors (3 * n)) = 30), Finset.card (Nat.divisors (6 * n)) = 35", "source": "miniF2F/valid", "split": "valid"}
+{"id": "mathd_numbertheory_739", "statement": "9! % 10 = 0", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_780", "statement": "∀ (m x : ℤ) (h₀ : 0 ≤ x) (h₁ : 10 ≤ m ∧ m ≤ 99) (h₂ : 6 * x % m = 1) (h₃ : (x - 6 ^ 2) % m = 0), m = 43", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_81", "statement": "71 % 3 = 2", "source": "miniF2F/valid", "split": "valid"}
 {"id": "mathd_numbertheory_84", "statement": "Int.floor ((9 : ℝ) / 160 * 100) = 5", "source": "miniF2F/valid", "split": "valid"}

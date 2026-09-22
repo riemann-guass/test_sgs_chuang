@@ -35,14 +35,14 @@ import hashlib
 import json
 import re
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from sgsr.data.lean_parse import DECL_RE, close_declaration  # noqa: F401  （对外复用）
+from sgsr.utils.http_client import BackendUnavailable, post_json
 from sgsr.pipeline import repair as repair_module
 from sgsr.pipeline import retrieval as retrieval_module
-from sgsr.pipeline.retrieval import Premise, RetrievalResult
+from sgsr.pipeline.retrieval import RetrievalResult
 
 # 消融开关（`scripts/prove.py --no-cheap`）：关掉第 3 步廉价 tactic 兜底。
 # 它是**模块级**的，因为兜底清单在 Lean 侧、跨进程；Python 侧只需要让"这张清单为空"，
@@ -110,121 +110,9 @@ class ProofResult:
 
 
 # ─────────────────────────── 输入解析 ───────────────────────────
-
-_DECL_RE = re.compile(
-    r"(?:^|\n)\s*(?:@\[[^\]]*\]\s*)?(?:private\s+|protected\s+|noncomputable\s+)*"
-    r"(?:theorem|lemma|example)\s*",
-)
-
-#: 声明之前允许出现的一行式命令（`import` / `open` / `namespace` / `set_option` …）。
-#: 它们必须被**剔掉**再找声明，否则 `import Mathlib` 会被拼进命题里——审计 P0 第 6 条。
-_PRELUDE_RE = re.compile(
-    r"(?m)^\s*(?:"
-    r"import\s+[^\n]*"
-    r"|open\s+[^\n]*"
-    r"|namespace\s+[^\n]*"
-    r"|end\s+[^\n]*"
-    r"|section\s*[^\n]*"
-    r"|variable\s+[^\n]*"
-    r"|universe\s+[^\n]*"
-    r"|set_option\s+[^\n]*"
-    r"|local\s+[^\n]*"
-    r"|noncomputable\s+section"
-    r")\s*$"
-)
-#: 块注释（含文档注释 `/-- … -/` 与 `/--! … -/`）。
-_BLOCK_COMMENT_RE = re.compile(r"/-[-!]?.*?-/", re.DOTALL)
-
-
-def _strip_prelude(text: str) -> str:
-    """去掉声明之前的 import/open/namespace/set_option 与块注释。"""
-    cleaned = _BLOCK_COMMENT_RE.sub("\n", text)
-    cleaned = _PRELUDE_RE.sub("", cleaned)
-    return cleaned
-
-
-def _find_top_level_colon(text: str) -> int:
-    """找**不在括号内**的第一个 `:`。用于切开 `theorem <名字> <绑定> : <类型>`。
-
-    不能直接用 `text.find(":")`：`theorem add_zero (n : Nat) : n + 0 = n` 里第一个冒号
-    是绑定变量里的那个，按它切会把名字切成一团乱码（实测踩过）。
-    """
-    depth = 0
-    pairs = {"(": ")", "{": "}", "[": "]"}
-    closing = set(pairs.values())
-    for index, char in enumerate(text):
-        if char in pairs:
-            depth += 1
-        elif char in closing:
-            depth = max(0, depth - 1)
-        elif char == ":" and depth == 0:
-            return index
-    return -1
-
-
-def _split_binders(text: str) -> tuple[list[str], str]:
-    """把 `(x : T) (h : P) {a : U} [inst : C]` 前缀切成绑定列表与剩余文本。"""
-    binders: list[str] = []
-    rest = text.lstrip()
-    while rest[:1] in ("(", "{", "["):
-        close_ch = {"(": ")", "{": "}", "[": "]"}[rest[0]]
-        depth = 0
-        end = -1
-        for index, char in enumerate(rest):
-            if char == rest[0]:
-                depth += 1
-            elif char == close_ch:
-                depth -= 1
-                if depth == 0:
-                    end = index
-                    break
-        if end == -1:
-            break
-        binders.append(rest[: end + 1])
-        rest = rest[end + 1 :].lstrip()
-    return binders, rest
-
-
-def _binder_to_forall(binder: str) -> str:
-    """`(x : T)` → `∀ x : T,`；`{a : U}` → `∀ {a : U},`；`[inst : C]` → `∀ [inst : C],`。"""
-    inner = binder[1:-1].strip()
-    opener = "" if binder[0] == "(" else binder[0]
-    closer = "" if binder[0] == "(" else {"{": "}", "[": "]"}[binder[0]]
-    return f"∀ {opener}{inner}{closer},"
-
-
-def close_declaration(text: str) -> str:
-    """把一条 `theorem`/`example` 声明闭包成自足的命题（协议 v1.2 要求闭式）。
-
-    步骤：剔掉 import/open/namespace/注释 → 定位声明 → 切掉证明体 →
-    找**顶层**冒号把"名字 + 绑定"与"命题"分开 → 绑定转 `∀`。
-    """
-    body = _strip_prelude(_DECL_RE.sub("\n", _strip_prelude(text), count=1)).strip()
-    # 截掉证明体
-    for marker in (":= by", ":=by", ":="):
-        index = body.find(marker)
-        if index != -1:
-            body = body[:index]
-            break
-    colon = _find_top_level_colon(body)
-    if colon == -1:
-        head, rest = body, ""
-    else:
-        head, rest = body[:colon], body[colon + 1:]
-    # head 有两种形状：
-    #   `add_zero (n : Nat)` —— 名字 + 绑定
-    #   `(n : Nat)`          —— 只有绑定（`example` 形式）
-    # 名字是**不以括号开头**的首个词；剥掉它之后再切绑定。
-    head = head.strip()
-    if head[:1] not in ("(", "{", "["):
-        parts = head.split(None, 1)
-        head = parts[1].strip() if len(parts) == 2 else ""
-    binders, _ = _split_binders(head)
-    statement = re.sub(r"\s+", " ", rest.strip())
-    if not binders:
-        return statement
-    return " ".join(_binder_to_forall(binder) for binder in binders) + " " + statement
-
+#
+# 具体的解析规则放在 `sgsr/data/lean_parse.py`（全仓库唯一一份实现）；
+# 这里只负责"闭式命题 + 来源标注"这一层，供 CLI 与评测脚本使用。
 
 def parse_input(stmt: str | None = None, lean_file: str | Path | None = None) -> dict:
     """抽取命题并闭包成全称量化形式（规格 3.1 节）。
@@ -243,7 +131,7 @@ def parse_input(stmt: str | None = None, lean_file: str | Path | None = None) ->
         # `_DECL_RE` 的 `(?:^|\n)` 需要行首位置；文件可能以 `theorem` 直接开头，
         # 所以统一在前面补一个换行再匹配（并把这个补过的文本交给下游解析）。
         marked = "\n" + raw
-        if not _DECL_RE.search(marked):
+        if not DECL_RE.search(marked):
             return {"stmt": "", "origin": str(path), "error": "parse_error",
                     "detail": "文件里没有 theorem/lemma/example 声明", "binders": []}
         if not re.search(r":=\s*by\b|:=", marked):
@@ -263,7 +151,7 @@ def parse_input(stmt: str | None = None, lean_file: str | Path | None = None) ->
                 "detail": "命题字符串为空", "binders": []}
     # 同文件路径：补一个换行让 `(?:^|\n)` 能匹配到行首
     marked = "\n" + text
-    decl = _DECL_RE.search(marked)
+    decl = DECL_RE.search(marked)
     if decl:
         # **像一份 .lean 文件**才按声明解析：声明之后必须还有 `:=`（证明体）。
         # 否则一段恰好含 `theorem` 字样的文本会被误当成文件（实测踩过：
@@ -282,28 +170,10 @@ def parse_input(stmt: str | None = None, lean_file: str | Path | None = None) ->
 
 
 # ─────────────────────────── HTTP ───────────────────────────
-
-
-class BackendUnavailable(RuntimeError):
-    """后端不可用（503 / 超时 / 网络）。**必须**与"模型证不出"分开记。"""
-
-
-def post_json(url: str, payload: dict, timeout: float = 300.0) -> dict:
-    """POST 一个 JSON，返回解析后的响应。**不吞错**：网络/HTTP 错误一律抛 `BackendUnavailable`。"""
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        url, data=body, headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:300]
-        raise BackendUnavailable(f"HTTP {exc.code} from {url}: {detail}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise BackendUnavailable(f"network error from {url}: {exc}") from exc
-    except ValueError as exc:
-        raise BackendUnavailable(f"响应不是合法 JSON：{exc}") from exc
+#
+# HTTP 客户端统一在 `sgsr/models/http.py`（`post_json` 抛 `BackendUnavailable`，
+# `soft_post_json` 把错误当数据返回）。本模块只用前者，且 `BackendUnavailable`
+# 从这里继续对外暴露，避免调用方多一个 import 面。
 
 
 def _usage_of(meta: dict) -> dict:
@@ -313,6 +183,17 @@ def _usage_of(meta: dict) -> dict:
         "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
         "reasoning_tokens": int(usage.get("reasoning_tokens", 0) or 0),
     }
+
+
+def usage_total(usage: dict) -> int:
+    """**计费**口径：prompt + completion。
+
+    `reasoning_tokens` 是 `completion_tokens_details` 里的一个**子集**
+    （OpenAI 兼容接口的定义），把它与前两类相加会把推理 token 算两遍——
+    thinking 打开时这会虚增 30%–50% 的成本。报告里三类都留，求和只用这个函数。
+    """
+    return (int(usage.get("prompt_tokens", 0) or 0)
+            + int(usage.get("completion_tokens", 0) or 0))
 
 
 def _add_usage(total: dict, delta: dict) -> None:
@@ -451,6 +332,23 @@ class Prover:
         )
         return responses, server.frontend_ms_total - before
 
+    def _cheap_two_step(self, lean, text: str) -> tuple[dict, dict, Attempt | None]:
+        """老服务端（没有 `cheap_verify`）上的兜底：先问清单，命中后再单独送终检。
+
+        多付一次 Mathlib 导入，但"廉价兜底命中的脚本也必须过内核终检"这条不变量
+        在**任何**服务端版本上都成立——这正是旧实现丢掉的那一条。
+        """
+        responses = lean.batch([{"id": "cheap", "cmd": "cheap", "stmt": text}])
+        cheap = (responses.get("cheap") or {}).get("result") or {}
+        if cheap.get("hit") is not True or not cheap.get("proof"):
+            return cheap, {}, None
+        candidate = str(cheap["proof"])
+        verdicts = lean.batch(
+            [{"id": "cheap_v", "cmd": "verify", "stmt": text, "proof": candidate}]
+        )
+        verdict = (verdicts.get("cheap_v") or {}).get("result") or {}
+        return cheap, verdict, self._judge(verdicts.get("cheap_v"), candidate, "cheap", 0)
+
     @staticmethod
     def _judge(response: dict | None, proof: str, source: str,
                round_index: int) -> Attempt:
@@ -502,15 +400,17 @@ class Prover:
         with self._lean() as lean:
             # ②③ 门检 + 廉价兜底：一批作业一起做（导入是最贵的固定成本）
             before = lean.frontend_ms_total
-            jobs = [
-                {"id": "gate", "cmd": "check", "stmt": text},
-                {"id": "cheap", "cmd": "cheap", "stmt": text},
-                # 兜底命中的脚本要过内核终检才放行。把它**塞进同一批**：
-                # 命中时（简单题的主要出路）这一步就是最后一个 Lean 作业，
-                # 整题只付一次 Mathlib 导入。代价是未命中时白跑一条 verify
-                # （毫秒级），换来简单题上省掉一整次 75 s 量级的导入。
-                {"id": "cheap_v", "cmd": "verify", "stmt": text, "proof": ""},
-            ]
+            jobs = [{"id": "gate", "cmd": "check", "stmt": text}]
+            if not CHEAP_DISABLED:
+                jobs.append({"id": "cheap", "cmd": "cheap_verify", "stmt": text})
+                # `cheap_verify` = 先试三批廉价 tactic，命中就**当场**把命中的那条
+                # tactic 送去内核终检，返回 `{cheap, verify}`。
+                #
+                # 为什么不是"把 verify 一起塞进这一批"：批是在知道命中哪条 tactic
+                # **之前**发出去的，那时唯一的证法只有空串 `proof=""`（恒 parse_error）。
+                # 旧实现正是这么写的，于是命中结果被自己的判定否掉、兜底彻底失效——
+                # 实测 `cheap` 报 `hit=true, tactic=simp`，而 `verify(proof="")` 报
+                # `ok=false, reason=parse_error`。判定必须发生在拿到 tactic 之后。
             responses = lean.batch(jobs)
             lean_ms += lean.frontend_ms_total - before
             gate_response = responses.get("gate") or {}
@@ -531,22 +431,45 @@ class Prover:
                 result.lean_ms = lean_ms
                 result.wall_ms = int((time.perf_counter() - started) * 1000)
                 return result
-            cheap = (responses.get("cheap") or {}).get("result") or {}
+            # `cheap_verify` 的 `result` 是 `{"cheap": …, "verify": …}` 两层结构：
+            # 外层是这条命令的响应体，内层才是廉价兜底的结果与**对命中的那条 tactic**
+            # 的终检结果。别把外壳当结果用（实测：外壳上取 `hit` 恒为 None，
+            # 兜底会静默失效、直接掉进模型路径）。
+            payload_result = (responses.get("cheap") or {}).get("result") or {}
+            cheap = payload_result.get("cheap") or {}
+            cheap_verify = payload_result.get("verify") or {}
             if CHEAP_DISABLED:
                 result.notes.append("cheap: 已被 --no-cheap 关闭")
-            elif cheap.get("hit") is True and cheap.get("proof"):
-                candidate = str(cheap["proof"])
-                # 兜底候选取同样的放行口：**必须过内核终检**才能进 proof 字段
-                attempt = self._judge(responses.get("cheap_v"), candidate, "cheap", 0)
-                result.attempts.append(attempt)
-                if attempt.ok:
-                    result.solved = True
-                    result.proof = candidate
-                    result.path = "cheap"
-                    result.lean_ms = lean_ms
-                    result.wall_ms = int((time.perf_counter() - started) * 1000)
-                    return result
-                result.notes.append(f"cheap 命中 {cheap.get('tactic')} 但未过终检：{attempt.reason}")
+            else:
+                if not payload_result and (responses.get("cheap") or {}).get("error"):
+                    # 老服务端不认识 `cheap_verify`：退回两步式（多付一次导入，
+                    # 但"命中的脚本必须过终检"这条不变量在任何服务端上都成立）。
+                    cheap, cheap_verify, attempt = self._cheap_two_step(lean, text)
+                    if attempt is not None:
+                        result.attempts.append(attempt)
+                        if attempt.ok:
+                            result.solved = True
+                            result.proof = attempt.proof
+                            result.path = "cheap"
+                            result.lean_ms = lean.frontend_ms_total
+                            result.wall_ms = int((time.perf_counter() - started) * 1000)
+                            return result
+                if cheap.get("hit") is True and cheap.get("proof"):
+                    candidate = str(cheap["proof"])
+                    # 兜底候选取同样的放行口：**必须过内核终检**才能进 proof 字段。
+                    # 判定来自 `cheap_verify` 里对**这条** tactic 的 verify 结果。
+                    attempt = self._judge({"result": cheap_verify}, candidate, "cheap", 0)
+                    result.attempts.append(attempt)
+                    if attempt.ok:
+                        result.solved = True
+                        result.proof = candidate
+                        result.path = "cheap"
+                        result.lean_ms = lean_ms
+                        result.wall_ms = int((time.perf_counter() - started) * 1000)
+                        return result
+                    result.notes.append(
+                        f"cheap 命中 {cheap.get('tactic')} 但未过终检：{attempt.reason}"
+                    )
 
             # ④ 分层检索：**放到门检之后**（规格 3.4 节的顺序）。
             # 审计指出旧实现先检索再门检——不合法/不合式的输入也会先去打一次外部检索 API，
@@ -580,8 +503,13 @@ class Prover:
                         )
                     model_calls += 1
                     _add_usage(result.usage, _usage_of(meta))
-                    spent += sum(_usage_of(meta).values())
-                    if not (meta.get("usage") or {}):
+                    spent += usage_total(_usage_of(meta))
+                    if meta.get("cache_hit"):
+                        # 缓存命中是按 0 token 计费的（`Backend.chat` 不再回上一次的
+                        # usage），单列出来，免得报告里出现"0 token 的调用"却看不出原因。
+                        result.usage["cache_hits"] = int(result.usage.get("cache_hits", 0)) + 1
+                        result.notes.append(f"{source}: 命中后端缓存（本次不计费）")
+                    elif not (meta.get("usage") or {}):
                         # 后端没回报 usage 时**必须留下痕迹**：否则成本表会显示
                         # 0 token 的"免费证明"，而那是记账缺失，不是真的免费。
                         result.notes.append(f"{source}: 后端未回报 usage（成本按 0 记）")

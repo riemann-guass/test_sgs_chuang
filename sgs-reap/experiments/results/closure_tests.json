@@ -1,5 +1,5 @@
 {
-  "passed": 43,
+  "passed": 60,
   "failed": [],
   "checks": [
     {
@@ -155,17 +155,27 @@
     {
       "name": "选择：诊断报告了被门槛拦下的条数",
       "ok": true,
-      "detail": "{'mode': 'best_single', 'greedy_value': 3.0, 'best_single_value': 3.0, 'budget': 200, 'remaining': 100, 'cost': 100, 'reuse_threshold': 2, 'pool': 3, 'blocked_by_threshold': 1}"
+      "detail": "{'mode': 'best_single', 'greedy_value': 3.0, 'best_single_value': 3.0, 'budget': 200, 'remaining': 100, 'cost': 100, 'reuse_threshold': 2, 'pool': 3, 'reusable': 2, 'exploring': 0, 'exploration_used': 0, 'blocked_by_threshold': 1, 'selected': 1}"
     },
     {
-      "name": "选择：预算 150 时取密度更高的组合而非最贵的单条",
+      "name": "选择：同增益时按规格回退到成本更低的单条（mode=best_single）",
       "ok": true,
-      "detail": "[('sgs_lem_1', 100)]"
+      "detail": "[('sgs_lem_1', 100)] mode=best_single"
+    },
+    {
+      "name": "选择：两条便宜的组合胜过一条贵的单条（density 模式）",
+      "ok": true,
+      "detail": "[('sgs_lem_x', 50), ('sgs_lem_y', 50)] mode=density"
+    },
+    {
+      "name": "选择：并集口径下不重复计同一目标（增益 2 + 1 = 3）",
+      "ok": true,
+      "detail": "[2.0, 1.0]"
     },
     {
       "name": "选择：比较基准与被选结果用同一个目标函数（覆盖增益）",
       "ok": true,
-      "detail": "{'mode': 'best_single', 'greedy_value': 3.0, 'best_single_value': 3.0, 'budget': 150, 'remaining': 50, 'cost': 100, 'reuse_threshold': 2, 'pool': 3, 'blocked_by_threshold': 1}"
+      "detail": "{'mode': 'best_single', 'greedy_value': 3.0, 'best_single_value': 3.0, 'budget': 150, 'remaining': 50, 'cost': 100, 'reuse_threshold': 2, 'pool': 3, 'reusable': 2, 'exploring': 0, 'exploration_used': 0, 'blocked_by_threshold': 1, 'selected': 1}"
     },
     {
       "name": "选择：给出模式（density / best_single）",
@@ -195,7 +205,7 @@
     {
       "name": "淘汰：新引理有探索额度，不被淘汰",
       "ok": true,
-      "detail": "['new0', 'used']"
+      "detail": "['new0', 'used', 'never_exposed']"
     },
     {
       "name": "淘汰：被引用过的保留",
@@ -203,9 +213,84 @@
       "detail": ""
     },
     {
+      "name": "淘汰：没进过提示词的引理不淘汰（给过机会才谈淘汰）",
+      "ok": true,
+      "detail": "['new0', 'used', 'never_exposed']"
+    },
+    {
       "name": "忠实度：完全单调的两列 Spearman = 1.0",
       "ok": true,
       "detail": "0.9999999999999998"
+    },
+    {
+      "name": "准入：空库 + 3 条新验证候选 → 按探索额度准入 2 条（不是 0 条）",
+      "ok": true,
+      "detail": "{'verified': 3, 'library_size': 0, 'library_budget': 30, 'room': 30, 'exploration_quota': 2, 'admitted': 2, 'dropped_by_quota': 1}"
+    },
+    {
+      "name": "准入：诊断给出被额度挡下的条数",
+      "ok": true,
+      "detail": "{'verified': 3, 'library_size': 0, 'library_budget': 30, 'room': 30, 'exploration_quota': 2, 'admitted': 2, 'dropped_by_quota': 1}"
+    },
+    {
+      "name": "准入：库容只剩 1 条时只准入 1 条",
+      "ok": true,
+      "detail": "{'verified': 3, 'library_size': 0, 'library_budget': 1, 'room': 1, 'exploration_quota': 1, 'admitted': 1, 'dropped_by_quota': 2}"
+    },
+    {
+      "name": "准入：库满时准入 0 条（不是把库撑爆）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "冷启动：库里没有复用证据时，探索期引理仍会被注入提示词",
+      "ok": true,
+      "detail": "{'mode': 'density', 'greedy_value': 0, 'best_single_value': 0.0, 'budget': 1200, 'remaining': 1200, 'cost': 0, 'reuse_threshold': 2, 'pool': 2, 'reusable': 0, 'exploring': 2, 'exploration_used': 2, 'blocked_by_threshold': 0, 'selected': 2}"
+    },
+    {
+      "name": "冷启动：超龄且无复用证据的引理不再注入（如实返回空集）",
+      "ok": true,
+      "detail": "{'mode': 'density', 'greedy_value': 0, 'best_single_value': 0.0, 'budget': 1200, 'remaining': 1200, 'cost': 0, 'reuse_threshold': 2, 'pool': 2, 'reusable': 0, 'exploring': 0, 'exploration_used': 0, 'blocked_by_threshold': 2, 'selected': 0}"
+    },
+    {
+      "name": "复用测量：按不同目标去重（t1 两篇只算 1）",
+      "ok": true,
+      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
+    },
+    {
+      "name": "复用测量：失败证明里的引用不算复用（t2 不在集合里）",
+      "ok": true,
+      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
+    },
+    {
+      "name": "复用测量：点号全名按叶子名计数（SgsLean.sgs_lem_a 也算）",
+      "ok": true,
+      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
+    },
+    {
+      "name": "复用测量：只被 1 个目标引用的引理 reuse=1",
+      "ok": true,
+      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
+    },
+    {
+      "name": "复用落盘：reuse 与 reuse_targets 写进库文件（淘汰/检索都靠它）",
+      "ok": true,
+      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1', 't2'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1}"
+    },
+    {
+      "name": "复用落盘：cost_tokens 一并写进库（检索层的排序键）",
+      "ok": true,
+      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1', 't2'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1}"
+    },
+    {
+      "name": "复用落盘：进过提示词的引理曝光计数 +1（没进的不加）",
+      "ok": true,
+      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1', 't2'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1} / {'stmt': '∀ (n : Nat), 0 + n = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_25068dc1', 'source_target': 'g02', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1'], 'reuse': 1, 'cost_tokens': 12, 'exposures': 0}"
+    },
+    {
+      "name": "复用落盘：报告里的复用分布被填上",
+      "ok": true,
+      "detail": "{'size': 2, 'reuse_histogram': {1: 1, 2: 1}, 'buckets': {'reusable': 1, 'used_once': 1}}"
     },
     {
       "name": "闭包：绑定变量转 ∀（不含声明关键字，且保留 n : Nat）",

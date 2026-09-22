@@ -138,6 +138,25 @@ def handleJob (job : Json) : TacticM Json := do
       match (job.getObjValAs? String "stmt").toOption with
       | some stmt => return okResponse id (toJson (← Trivial.tryCheapTactics stmt))
       | none => return errResponse id "invalid_params" "cheap 需要字符串字段 stmt"
+    | "cheap_verify" =>
+      -- 廉价兜底 + **对它命中的那条 tactic** 的内核终检，一次作业完成。
+      --
+      -- 为什么必须合成一个命令：调用方发批的时候还不知道会命中哪条 tactic，
+      -- 那时唯一的 `proof` 只能是空串；把 `verify(proof="")` 和 `cheap` 塞进同一批
+      -- 就会拿空串的判定去裁定命中的 tactic（恒 `parse_error`），兜底彻底失效
+      -- （实测：`cheap` 报 `hit=true, tactic=simp`，`verify("")` 报 `ok=false`）。
+      match (job.getObjValAs? String "stmt").toOption with
+      | none => return errResponse id "invalid_params" "cheap_verify 需要字符串字段 stmt"
+      | some stmt =>
+        let cheap ← Trivial.tryCheapTactics stmt
+        -- 没命中就没有可终检的脚本，`verify` 回空对象（调用方据此知道"没得判"，
+        -- 而不是把它当成"判过且失败"）。
+        let verifyJson : Json ←
+          if cheap.hit && !cheap.proof.isEmpty then
+            toJson <$> Verify.verify stmt cheap.proof
+          else
+            pure (Json.mkObj [])
+        return okResponse id (Json.mkObj [("cheap", toJson cheap), ("verify", verifyJson)])
     | "novelty" =>
       match (job.getObjValAs? String "stmt").toOption with
       | none => return errResponse id "invalid_params" "novelty 需要字符串字段 stmt"
@@ -169,34 +188,79 @@ def handleJob (job : Json) : TacticM Json := do
   catch ex =>
     return errResponse id "internal_error" (← ex.toMessageData.toString)
 
-/-- **子进程入口**：读 `jobs.json`（JSON 数组），逐条判定，把响应数组写 `out.json`。 -/
-def runJobs : TacticM Unit := do
+/-- 读 `jobs.json`（JSON 数组）。 -/
+def readJobs : IO (Array Json) := do
   let text ← IO.FS.readFile jobsFileName
-  let jobs := (Json.parse text).toOption.bind (fun j => j.getArr?.toOption) |>.getD #[]
-  let mut out : Array Json := #[]
-  -- **逐条落盘**，不要攒到最后一次写：只要批里有一条候选让子进程硬崩
-  -- （tactic 把栈打爆 / 解释器 OOM），攒写就会让**整批**响应一起消失。
-  -- phase18 实测丢过整整 40 条（一个 chunk）。逐条写把损失限制在出问题的那一条，
-  -- 父进程侧对缺失条目回 `响应缺失`，剩下的结果仍然可用。
+  return (Json.parse text).toOption.bind (fun j => j.getArr?.toOption) |>.getD #[]
+
+/-- 某个作业的响应已经落盘了吗（父进程据此判断这一条是否已完成）。 -/
+def responsesSoFar : IO (Array Json) := do
+  match ← (try some <$> IO.FS.readFile outFileName catch _ => pure none) with
+  | none => return #[]
+  | some text =>
+    match Json.parse text with
+    | .ok json => return json.getArr?.toOption.getD #[]
+    | .error _ => return #[]
+
+/-- **子进程入口**：判定 `jobs.json` 里的**第 `index` 条**作业，把响应数组写回 `out.json`。
+
+为什么是"一条作业一个 command"（而不是以前的一次 `run_tac` 跑完整批）：
+
+* Lean 的心跳预算**按 command 累计**（`Lean.Elab.Command` 在每个 command 开头记录
+  `initHeartbeats`）。整批挤在一个 `run_tac` 里 ⟹ 后面几十条作业共享前面作业的消耗，
+  批次尾部集体报 `maximum number of heartbeats`，看起来像"模型证不出"——
+  phase18/19/20 都踩过，只能靠 `budget_for_jobs` 这个经验公式硬撑。
+  一条作业一个 command，计数器**自动复位**，这类伪影从根上消失。
+* 每条作业的失败（心跳耗尽、tactic 抛异常）只影响它自己的 command，
+  父进程仍然能拿到其余条目的结果。
+
+响应**逐条落盘**（写完这条就写文件）：只要有一条让子进程硬崩，损失也限制在它自己，
+父进程侧对缺失条目回"响应缺失"，剩下的结果仍然可用。 -/
+def runJob (index : Nat) : TacticM Unit := do
+  let jobs ← readJobs
+  let some job := jobs[index]? | return ()
+  let out ← responsesSoFar
+  -- 只为兼容"父进程把响应数组按位置对齐"的约定：缺位补空对象。
+  let mut out := out
+  while out.size < index do
+    out := out.push (Json.mkObj [])
+  let response ← handleJob job
+  if out.size == index then
+    out := out.push response
+  else
+    out := out.set! index response
   IO.FS.writeFile outFileName (Json.arr out).compress
-  for job in jobs do
-    out := out.push (← handleJob job)
-    IO.FS.writeFile outFileName (Json.arr out).compress
+
+/-- 一次判定整批（保留给"作业数未知"的调用方；服务端主路径用 `runJob`）。 -/
+def runJobs : TacticM Unit := do
+  let jobs ← readJobs
+  for index in [:jobs.size] do
+    runJob index
 
 end
 
 /-! ## 父进程侧：片段生成、子进程调度、主循环 -/
 
-/-- 片段源码：**内容固定**（import 头与判定预算由环境配置决定，请求数据永不参与拼字符串）。 -/
-def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) : String :=
+/-- 片段源码：**形状固定**（import 头与判定预算由环境配置决定，请求数据永不参与拼字符串）。
+
+每个作业一个 `example` command：心跳计数器按 command 复位，批次尾部不再被前面的作业
+拖死（见 `runJob` 的说明）。`nJobs` 只决定重复几个 command，不插入任何请求内容。 -/
+def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) (nJobs : Nat) : String :=
   let mods := parseImports imports
   -- 没有 Mathlib 时要自己补 `ℕ` 记法；有 Mathlib 时**不能**补（重复声明 termℕ 是硬错误）
   let notationPatch := if mods.contains "Mathlib" then #[] else #["import SgsLean.Syntax"]
   -- `linter.unusedTactic` 是 Mathlib 提供的 linter；核心环境里没这个选项，设了会直接报错
   let linterPatch := if mods.contains "Mathlib" then #["  set_option linter.unusedTactic false"] else #[]
+  -- miniF2F 的题面假定这些名字空间是打开的（原文件头就写着 `open BigOperators Real
+  -- Nat Topology Rat`）。判定环境以前没有它们，于是 `π`、`∑` 这类记法被判
+  -- `unknown_identifier` / `parse_error`，D/T 各丢了十几条题——那是环境缺失，不是数学错。
+  let opensPatch :=
+    if mods.contains "Mathlib" then #["open BigOperators Real Nat Topology Rat"] else #[]
   let header := (mods.map (fun m => s!"import {m}")) ++ notationPatch ++
     #["import SgsLean", "import SgsLean.Server"]
-  String.intercalate "\n" ((header ++ #[
+  let body := (List.range nJobs).map fun i =>
+    s!"example : True := by\n  run_tac (SgsLean.Server.runJob {i})\n  trivial"
+  String.intercalate "\n" ((header ++ opensPatch ++ #[
     "open Lean Meta Elab Tactic",
     "set_option autoImplicit true",
     "set_option Elab.async false",
@@ -205,10 +269,7 @@ def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) : String
     -- 单 tactic 的墙钟上限：Mathlib 级 tactic 在解释执行下偶发很慢，
     -- 心跳管住 CPU 预算、墙钟兜住 IO/解释器开销，两者要一起调。
     s!"set_option reap.timeout {tacticTimeoutMs}"] ++ linterPatch ++ #[
-    "example : True := by",
-    "  run_tac SgsLean.Server.runJobs",
-    "  trivial",
-    ""]).toList)
+    ""] ++ body ++ [""]).toList)
 
 /-- 项目工具链字符串（写进工作目录的 `lean-toolchain`，让 elan 选对版本）。 -/
 def projectToolchain : IO String := do
@@ -225,10 +286,8 @@ def prepareWorkDir : IO System.FilePath := do
     | none => ".lake" / "sgslean-server-work"
   IO.FS.createDirAll dir
   IO.FS.writeFile (dir / "lean-toolchain") ((← projectToolchain) ++ "\n")
-  let imports := (← IO.getEnv "SGSLEAN_IMPORTS").getD defaultImports
-  let heartbeats ← envNat "SGSLEAN_HEARTBEATS" defaultHeartbeats
-  let tacticTimeoutMs ← envNat "SGSLEAN_TACTIC_TIMEOUT_MS" defaultTacticTimeoutMs
-  IO.FS.writeFile (dir / snippetFileName) (snippetSource imports heartbeats tacticTimeoutMs)
+  -- 片段**每批**重写（内容只依赖 import/预算/作业条数），所以这里不再写它——
+  -- 见 `runBatch`。工作目录里仍然要有 lean-toolchain 与启动脚本。
   -- 用脚本文件承载重定向：`cmd /c` 的参数里带空格/重定向符时，Lean 的 spawn 会加引号，
   -- 实测传过去就不是 cmd 想要的语法（exit=1、日志也没生成）。写进 .cmd 最稳。
   IO.FS.writeFile (dir / childCmdFileName)
@@ -240,6 +299,12 @@ def prepareWorkDir : IO System.FilePath := do
 def runBatch (jobs : Array Json) (workDir : System.FilePath) : IO (Array Json × Nat) := do
   if jobs.isEmpty then return (#[], 0)
   IO.FS.writeFile (workDir / jobsFileName) (Json.arr jobs).compress
+  -- 每批重写片段：一个作业一个 command（心跳按 command 复位），作业条数决定 command 数。
+  let imports := (← IO.getEnv "SGSLEAN_IMPORTS").getD defaultImports
+  let heartbeats ← envNat "SGSLEAN_HEARTBEATS" defaultHeartbeats
+  let tacticTimeoutMs ← envNat "SGSLEAN_TACTIC_TIMEOUT_MS" defaultTacticTimeoutMs
+  IO.FS.writeFile (workDir / snippetFileName)
+    (snippetSource imports heartbeats tacticTimeoutMs jobs.size)
   let outPath := workDir / outFileName
   try IO.FS.removeFile outPath catch _ => pure ()
   let start ← IO.monoNanosNow

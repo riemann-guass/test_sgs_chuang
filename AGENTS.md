@@ -106,17 +106,20 @@ D:\bianma\code\大创\
    │   │                        prompts.py(提示词与解析) · backend.py(OpenAI 兼容) · config.py · .env(不入库)
    │   ├─ pipeline\             demand(N1) · conjecture · library · coverage · runner(闭环编排)
    │   │                        prover.py · retrieval.py · repair.py（P1 骨架已建，待实现）
-   │   ├─ verification\         client.py：sgslean-server 的常驻客户端
-   │   ├─ data\                 schema.py（轨迹/需求/库的数据模式）
-   │   └─ utils\                service.py（起服务、日志尾巴、端口解析）
+   │   ├─ verification\         client.py：sgslean-server 的常驻客户端（批处理 + 环境预检）
+   │   ├─ data\                 schema.py（轨迹/需求/库的数据模式）·
+   │   │                        lean_parse.py（"声明 → 闭式命题"的唯一实现）
+   │   └─ utils\                service.py（起服务、日志尾巴、端口解析）·
+   │                            http_client.py（全仓库唯一的 HTTP JSON 客户端）
    ├─ sgslean\                  【Lean 侧】Gate · Verify · Trivial · Novelty · Measure · Materialize ·
    │                            Trace · Server(协议 v1.2) · GeneratedLibrary.lean(自动生成，勿手改)
    ├─ reap-fork\                reap 的本地 fork（上游 commit 1477439）
    │                            **验证内核是地基**：sgslean 直接 import Reap.Tactic.{Conjecture,Step,TreeSearch}
    │                            MCTS 全套（Generator/TreeSearch/Options）已就绪、默认关闭
-   ├─ scripts\                  实验入口：prove(单题) · run_prover_eval(批量) · run_round(闭环) ·
-   │                            build_library · run_conjecture · run_gate_g1/g2/g3_real ·
-   │                            diagnose_exceptions · run_server_smoke · run_m1_calibration …
+  ├─ scripts\                  实验入口：prove(单题) · run_prover_eval(批量) · run_round(闭环) ·
+  │                            build_library · run_conjecture · run_gate_g1/g2/g3_real ·
+   │                            run_closure_tests · diagnose_exceptions · run_server_smoke ·
+   │                            run_m1_calibration …
    ├─ tools\                    数据集转换与后端自检：minif2f_to_jsonl.py · check_backend.py
    ├─ data\                     数据集（角色见第四节）
    ├─ experiments\              results\(入库的报告) + runs\(逐条轨迹，可再生产物，不入库)
@@ -159,7 +162,12 @@ D:\bianma\code\大创\
 | 廉价 tactic 兜底（在线第 3 步） | `SgsLean/Trivial.tryCheapTactics` + `Server` 的 `cheap` 命令 | ✅ 三批清单，Mathlib/快速双模式实测 |
 | 证明器本体（在线九步） | `sgsr/pipeline/{prover,retrieval,repair}.py` + `scripts/{prove,run_prover_eval}.py` | ✅ 离线假服务全链路；**真模型数字待跑**（phase25） |
 | 闭环核心协议（审计 P0/P1 整改） | `schema` 目标身份 · `runner` 真复用判据与来源守卫 · `coverage` 密度贪心与淘汰 | ✅ phase26 |
-| 闭环核心测试 | `scripts/run_closure_tests.py`（46 条断言，含物化→编译→import 往返） | ✅ 43/43（A 组）+ B 组 |
+| 选择层真接线（准入/复用测量/落盘/淘汰/注入） | `coverage` + `runner` + `library.name_for` | ✅ phase27（假服务实测：空库 → 一轮后 1 条 → 下轮注入 1 条） |
+| 在线兜底（命中即终检） | `Server.lean` 的 `cheap_verify` + `prover` | ✅ phase27（`path=cheap` 且 `model_calls=0`） |
+| 判定执行模型（每作业一个 command） | `Server.lean` 的 `runJob`/`snippetSource` | ✅ phase27（心跳不再按批累计） |
+| 公共入口收敛（HTTP / Lean 客户端 / 语句解析） | `utils/http_client.py` · `verification/client.py` · `data/lean_parse.py` | ✅ phase27（替掉 7 份 HTTP、5 份 Lean 驱动、2 份解析） |
+| 闭环核心测试 | `scripts/run_closure_tests.py`（**60 条断言**，含准入/探索额度/复用测量与落盘、物化→编译→import 往返） | ✅ 60/60（A 组）+ B 组 |
+| D/T 语料 | `data/minif2f_{valid,test}.jsonl` | ✅ phase27 重生成：244/244（旧 229/236，**零丢失零改写**） |
 
 **待建**（第二版文档第 9 节的 P1 至 P5）：
 
@@ -171,14 +179,21 @@ D:\bianma\code\大创\
 | P4 | 成本与复用分析 | 论文主图（复用率对成本） |
 | P5 | 写作 | 大创报告 + 论文短文 |
 
-**审计遗留（2026-09-22，见 `sgs-reap/docs/phase26-log.md`）**：
+**审计遗留（2026-09-22 更新，见 `sgs-reap/docs/phase27-log.md`）**：
 
-1. **Lean 子进程仍不常驻**——每批一次 Mathlib 导入（实测 75.6 s），20 题 95 分钟里
-   88% 花在重复导入上。常驻化是下一件的**首要**工作（预计把每题固定成本从 3.3 次导入降到 1 次）。
-   本轮尝试过并**已回退**（四个坑修完后仍有未解释的丢响应行为，不混进整改批次）。
+1. **Lean 子进程仍不常驻**——每批仍要付一次 Mathlib 导入（实测 75 s 量级）。
+   phase27 已经去掉"按批放大心跳"这个绕路（每作业一个 command，计数复位），
+   但"同一份 Mathlib 装了 N 遍"还在。上游 SGS 用持久化 REPL（`query_repl`），
+   这是下一件最值钱的工作。
 2. **三条表述要改**（改主张属"重大方向改变"，须先问用户）：
    "自博弈"命名偏强；子模性保证不适用于真实 pass@k；`reuse` 是"被使用次数"不是"因果复用价值"。
-3. 成本口径按实测重标：**约 7,500 token/调用**（不是 1,500），单题墙钟约 4.75 分钟。
+3. 成本口径按实测：**约 7,500 token/调用**（不是 1,500），单题墙钟约 4.75 分钟；
+   计费口径 = `prompt + completion`（`reasoning_tokens` 是 completion 的子集，不能相加）。
+4. **真模型数字仍缺**：`experiments/results/p1_dev_k4_n20.json`（09-21，pass@4=0.05）是
+   phase26 之前的产物，且当时代理里挂的库来自 D、评测集也是 D（自我循环）——
+   **不能当基线**。修好装置后的第一组数字要重跑。
+5. **`reuse` 的忠实度未审计**：`coverage.spearman` 已就绪，"引用计数代理"与真实
+   边际增益的相关性要等真模型数据。
 
 **参考基线**：miniF2F valid 修正预算后（k=3）候选级 44/164、目标级 18/57 ≈ 32%；
 近失手（解出率严格介于 0 与 1）约占一成，是唯一有增益信号的区间。
@@ -217,6 +232,7 @@ $env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"
 
 # 自检
 & $py -m compileall -qf sgsr scripts tools
+& $py scripts\run_closure_tests.py --no-lean    # 闭环核心协议：60 条断言，秒级
 
 # 编译项目文档（需 xelatex，连编两遍）
 cd D:\bianma\code\大创\docs

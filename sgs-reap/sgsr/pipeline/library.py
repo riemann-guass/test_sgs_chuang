@@ -27,6 +27,7 @@ v1 用 JSONL 存库，每条：
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -40,6 +41,17 @@ FORBIDDEN_SOURCE_CORPORA = {"D", "T", "dev", "test", "minif2f_valid", "minif2f_t
 
 class LibrarySourceError(RuntimeError):
     """库里出现 D/T 来源的引理（违反 `docs/data-protocol.md` 硬约束 1）。"""
+
+
+def name_for(stmt: str) -> str:
+    """引理的**稳定**名字：`sgs_lem_<归一化语句 sha256 前 8 位>`。
+
+    为什么不用序号：`Materialize` 以前按数组下标命名 `sgs_lem_<i+1>`，而淘汰会从
+    库中间删条目，于是删一条就让后面所有名字整体错位——历史 `constants`、
+    提示词里给的名字、已验证的证明文本全部张冠李戴。名字必须由**内容**决定。
+    """
+    digest = hashlib.sha256(normalize_sig(stmt).encode("utf-8")).hexdigest()
+    return f"sgs_lem_{digest[:8]}"
 
 
 def _check_source(entry: dict) -> str:
@@ -86,7 +98,11 @@ def add_many(path: str | Path, entries: list[dict]) -> tuple[int, list[dict]]:
                 rejected.append({"stmt": stmt, "reason": "库内重复"})
                 continue
             seen.add(stmt)
-            handle.write(json.dumps(entry | {"stmt": stmt}, ensure_ascii=False) + "\n")
+            named = entry | {"stmt": stmt}
+            # 名字在**入库这唯一一处**生成：物化、检索、提示词三边都读同一个字段，
+            # 谁都不许再按下标猜名字。
+            named["name"] = str(entry.get("name") or "").strip() or name_for(stmt)
+            handle.write(json.dumps(named, ensure_ascii=False) + "\n")
             written += 1
     return written, rejected
 
@@ -118,6 +134,21 @@ def assert_clean_sources(path: str | Path) -> None:
             f"{Path(path).name} 里有 {len(offenders)} 条 D/T 来源的引理，"
             f"违反 docs/data-protocol.md 硬约束 1：{offenders[:3]}"
         )
+
+
+def write_all(path: str | Path, rows: list[dict]) -> None:
+    """整库重写（保持给定顺序）。
+
+    只有 `runner` 的"复用记账 + 曝光计数 + 淘汰"这一步该调用它：它需要把内存里
+    测到的 `reuse` / `reuse_targets` / `exposures` 落盘。别的地方一律用 `add_many`
+    追加，避免把库改成非原子的读写混合。
+    """
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
 
 
 def query(path: str | Path, text: str) -> list[dict]:

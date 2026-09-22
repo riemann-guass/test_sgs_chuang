@@ -48,33 +48,35 @@ class LeanServerError(RuntimeError):
     pass
 
 
-# 心跳预算的经验值与"批内累计"这个坑
-# -----------------------------------
-# Lean 的心跳计数器是**按 command 累计**的：一整批作业都跑在同一个
-# `example : True := by run_tac ...` 里，所以计数器**不会**在作业之间复位。
-# 症状极具迷惑性——phase19 用 9 条候选（`True` / `1 = 1` 这种）做离线漏斗，
-# 27 条作业、预算 4,000,000，结果 8/9 条候选在**门检**就被判 `exception`：
-# 不是这些命题难，而是前面几十条作业把累计预算用光了。
+# 心跳预算：**单条作业一份，与批大小无关**
+# ----------------------------------------
+# 历史（phase17–20 的坑）：Lean 的心跳计数器**按 command 累计**，而当时一整批作业
+# 跑在同一个 `example : True := by run_tac ...` 里，于是批次尾部的作业被前面的作业
+# 拖死，集体报 `maximum number of heartbeats` —— 看起来像"模型证不出"。
+# 当时的缓解办法是把预算按批大小放大（`4M + 200k × 作业数`）。
 #
-# 这也回头解释了 phase17：miniF2F 的 G1 每批 60 条作业、预算 4,000,000，
-# 于是"每批后半段的作业集体报 exception"，被误读成"模型证不出"。
-# phase18 把预算提到 40,000,000 后 164 条一批只剩 11 条 exception，
-# 与"累计"这个模型一致（≈240k 心跳/作业）。
+# 2026-09-22 之后，服务端改成**一个作业一个 command**（见 `SgsLean/Server.lean` 的
+# `runJob`/`snippetSource`）：计数器在每个 command 开头复位，累计伪影从根上消失。
+# 于是"按批大小放大"不再有意义（它现在只是给**每一条**作业都发一份放大后的预算），
+# 这里改成固定值，并按实测标定：
 #
-# 因此：**预算必须随批大小放大**，而不是固定值。
-HEARTBEATS_BASE = 4_000_000
-HEARTBEATS_PER_JOB = 200_000
+# * `aime_1984_p15` 的题面在 52.8M 心跳下 `whnf` 超时、在 400M 下通过
+#   （miniF2F 里最重的题面之一，主要开销是 Mathlib 解释执行下的 `whnf`/`isDefEq`）；
+# * 真正的上界是**墙钟**：每条约 tactic 受 `reap.timeout`（默认 200 s）约束，
+#   整批受 `batch(timeout=...)` 约束。
+#
+# 需要更紧/更松的预算时用 `SGSLEAN_HEARTBEATS` 显式指定（`diagnose_exceptions.py`
+# 就是这么把"预算掐死"与"真判定"分开的）。
+HEARTBEATS_PER_JOB = 400_000_000
 
 
-def budget_for_jobs(n_jobs: int) -> int:
-    """按批大小估一个够用的心跳预算。
+def budget_for_jobs(n_jobs: int = 0) -> int:  # noqa: ARG001 - 参数保留兼容旧调用点
+    """单条作业的心跳预算。
 
-    这是**经验估计**，不是定理。真实做法应该是每个作业前后复位计数器
-    （若 Lean 暴露该 API）或改成每作业一个 command；在做到那一步之前，
-    这个估计配合"报告里如实记录预算"足够可靠——而且它是可验证的：
-    若某批里出现 `exception`，先看它是不是集中在批次尾部。
+    参数 `n_jobs` **不再影响结果**：每个作业跑在自己的 command 里，预算逐条独立，
+    按批大小放大只会让"报告里的预算"失去意义。保留参数是为了不动各脚本的调用点。
     """
-    return HEARTBEATS_BASE + HEARTBEATS_PER_JOB * max(0, n_jobs)
+    return HEARTBEATS_PER_JOB
 
 
 class LeanServer:
@@ -175,22 +177,47 @@ class LeanServer:
 
         responses: dict[str, dict] = {}
         expected = len(jobs) + 1
-        while len(responses) < expected:
+        # **按收到的行数**判断收齐，而不是按响应字典的条数：字典长度在"服务端把同一个 id
+        # 回了两次"时会永远到不了 expected，于是这里会一直阻塞到 `timeout`（默认 2 小时）
+        # 才报超时——现象是"批处理卡死"，而不是"丢了一条响应"。phase26 记的
+        # "没有解释的丢响应"很可能就是这个形态。
+        lines_read = 0
+        while lines_read < expected:
             if time.perf_counter() - started > timeout:
-                raise LeanServerError(f"等待响应超时（{timeout}s，已收到 {len(responses)}/{expected}）")
+                raise LeanServerError(
+                    f"等待响应超时（{timeout}s，已收到 {lines_read}/{expected} 行）"
+                )
             line = self.proc.stdout.readline()
             if line == "":
                 raise LeanServerError(
-                    f"server 在返回全部响应前关闭（收到 {len(responses)}/{expected}）；"
+                    f"server 在返回全部响应前关闭（收到 {lines_read}/{expected} 行）；"
                     f"stderr 见 {self.stderr_path}"
                 )
             line = line.strip()
             if not line:
                 continue
-            item = json.loads(line)  # 协议纯度：每一行都必须是 JSON
-            responses[str(item.get("id"))] = item
-            if str(item.get("id")) == flush_id:
+            lines_read += 1
+            try:
+                item = json.loads(line)  # 协议纯度：每一行都必须是 JSON
+            except ValueError as exc:
+                raise LeanServerError(f"server 回了非 JSON 行：{line[:200]!r}") from exc
+            rid = str(item.get("id"))
+            if rid in responses:
+                raise LeanServerError(
+                    f"server 重复回了 id={rid} 的响应（协议违规）；已收到 {lines_read}/{expected} 行"
+                )
+            responses[rid] = item
+            if rid == flush_id:
                 self.frontend_ms_total += int((item.get("result") or {}).get("frontend_ms", 0) or 0)
+        missing = [str(job.get("id")) for job in jobs if str(job.get("id")) not in responses]
+        if missing:
+            # 少回一条 = 协议错误，必须当场炸：静默让调用方把"响应缺失"当成
+            # "这条候选不成立"，正好是审计最反对的那类失真。
+            raise LeanServerError(
+                f"server 少回了 {len(missing)} 条响应（例如 {missing[:3]}）"
+            )
+        if flush_id not in responses:
+            raise LeanServerError("server 没有回 flush 响应：无法确认本批已结束")
         self.batch_count += 1
         return responses
 
@@ -249,6 +276,32 @@ def latest_traces(pattern: str = "g1_*/traces.jsonl") -> Path | None:
     """最近一次 g1 运行的轨迹文件（诊断脚本的默认输入）。"""
     found = sorted(RUNS.glob(pattern))
     return found[-1] if found else None
+
+
+def preflight_imports(imports: str, probe_stmt: str = "True",
+                      stderr_path: Path | None = None) -> tuple[bool, str]:
+    """**环境预检**：这套 import（尤其是 `SgsLean.GeneratedLibrary`）真的能用吗？
+
+    phase22 踩过一次：`lake build SgsLean`（库目标）不会编
+    `SgsLean.GeneratedLibrary`，于是处理臂的片段以 "object file ... does not exist"
+    整批崩掉，所有判定为空——却表现为"给库之后成绩退化"的**假结论**。
+    所以每次动到库的实验都必须先跑这个预检，失败就直接退出，不让假数据流进报告。
+
+    返回 `(是否可用, 说明)`。预检本身只花一次导入。
+    """
+    try:
+        with LeanServer(imports=imports, heartbeats=budget_for_jobs(1),
+                        stderr_path=stderr_path) as server:
+            response = server.batch([{"id": "pf", "cmd": "check", "stmt": probe_stmt}])
+    except (LeanServerError, OSError) as exc:
+        return False, f"预检进程失败：{type(exc).__name__}: {exc}"
+    entry = response.get("pf") or {}
+    if entry.get("error"):
+        return False, f"预检协议错误：{json.dumps(entry['error'], ensure_ascii=False)[:300]}"
+    result = entry.get("result") or {}
+    if result.get("ok") is not True:
+        return False, f"预检判定未通过：{json.dumps(result, ensure_ascii=False)[:300]}"
+    return True, "ok"
 
 
 if __name__ == "__main__":

@@ -41,7 +41,13 @@ SGSLEAN = ROOT / "sgslean"
 sys.path.insert(0, str(ROOT))
 
 from sgsr.data.schema import candidate_id, target_of, validate_trace  # noqa: E402
-from sgsr.pipeline.coverage import evict, reuse_cost_greedy, select_by_reuse, spearman  # noqa: E402
+from sgsr.pipeline.coverage import (  # noqa: E402
+    evict,
+    exploration_admission,
+    reuse_cost_greedy,
+    select_by_reuse,
+    spearman,
+)
 from sgsr.pipeline.demand import mine  # noqa: E402
 from sgsr.pipeline.library import (  # noqa: E402
     LibrarySourceError,
@@ -49,7 +55,14 @@ from sgsr.pipeline.library import (  # noqa: E402
     assert_clean_sources,
     load as load_library,
 )
-from sgsr.pipeline.runner import _verify_ok, TargetSet, DataRoleError, ROLE_CURRICULUM  # noqa: E402
+from sgsr.pipeline.runner import (  # noqa: E402
+    _verify_ok,
+    DataRoleError,
+    ROLE_CURRICULUM,
+    RoundReport,
+    RoundRunner,
+    TargetSet,
+)
 from sgsr.pipeline.prover import close_declaration, parse_input  # noqa: E402
 
 RESULTS: list[tuple[str, bool, str]] = []
@@ -285,9 +298,31 @@ def test_selection_and_eviction() -> None:
     # 预算 150：密度贪心选 (成本 50 + 20)，并在**同一目标函数**下胜过单条 100 的那条
     chosen2, _, diag2 = select_by_reuse(pool, ctx_budget=150, threshold=2)
     picked = {(c["name"], c["cost_tokens"]) for c in chosen2}
-    check("选择：预算 150 时取密度更高的组合而非最贵的单条",
-          picked == {("sgs_lem_2", 50), ("sgs_lem_3", 20)} or len(chosen2) == 1,
-          f"{sorted(picked)}")
+    # 断言必须写死：以前这里是 `... or len(chosen2) == 1`，那个"或"让这条永远为真
+    # （逃生口型断言），装置空转也照样亮绿灯。
+    # 这个池子在预算 150 下的正确结果是：贪心取 {S1,S2}（覆盖 3 个目标、成本 150），
+    # 与"只取最优单条 S1"（覆盖同样 3 个、成本 100）**同值更贵**，
+    # 按规格的平手规则（同增益取成本更低）应回退到 best_single。
+    check("选择：同增益时按规格回退到成本更低的单条（mode=best_single）",
+          picked == {("sgs_lem_1", 100)} and diag2["mode"] == "best_single",
+          f"{sorted(picked)} mode={diag2['mode']}")
+
+    # 密度贪心真正该赢的场景：两条便宜的组合 > 一条贵的单条（同增益时）。
+    density_pool = [
+        {"stmt": "X", "name": "sgs_lem_x", "reuse": 2, "cost_tokens": 50,
+         "reuse_targets": ["t1", "t2"]},
+        {"stmt": "Y", "name": "sgs_lem_y", "reuse": 1, "cost_tokens": 50,
+         "reuse_targets": ["t3"]},
+        {"stmt": "Z", "name": "sgs_lem_z", "reuse": 3, "cost_tokens": 140,
+         "reuse_targets": ["t1", "t2", "t3"]},
+    ]
+    chosen3, gains3, diag3 = reuse_cost_greedy(density_pool, ctx_budget=150)
+    got3 = {(c["name"], c["cost_tokens"]) for c in chosen3}
+    check("选择：两条便宜的组合胜过一条贵的单条（density 模式）",
+          got3 == {("sgs_lem_x", 50), ("sgs_lem_y", 50)} and diag3["mode"] == "density",
+          f"{sorted(got3)} mode={diag3['mode']}")
+    check("选择：并集口径下不重复计同一目标（增益 2 + 1 = 3）",
+          abs(sum(gains3) - 3.0) < 1e-9, f"{gains3}")
     check("选择：比较基准与被选结果用同一个目标函数（覆盖增益）",
           diag2["best_single_value"] <= diag2["greedy_value"] or diag2["mode"] == "best_single",
           f"{diag2}")
@@ -307,9 +342,10 @@ def test_selection_and_eviction() -> None:
           max(diag_small["greedy_value"], diag_small["best_single_value"]) > 0)
 
     library = [
-        {"stmt": "old0", "reuse": 0, "added_round": 0},
-        {"stmt": "new0", "reuse": 0, "added_round": 3},
-        {"stmt": "used", "reuse": 3, "added_round": 0},
+        {"stmt": "old0", "reuse": 0, "added_round": 0, "exposures": 2},
+        {"stmt": "new0", "reuse": 0, "added_round": 3, "exposures": 1},
+        {"stmt": "used", "reuse": 3, "added_round": 0, "exposures": 2},
+        {"stmt": "never_exposed", "reuse": 0, "added_round": 0, "exposures": 0},
     ]
     kept, evicted = evict(library, round_index=4, evict_after=3)
     check("淘汰：reuse=0 且超龄的移入冷存",
@@ -317,9 +353,123 @@ def test_selection_and_eviction() -> None:
     check("淘汰：新引理有探索额度，不被淘汰",
           "new0" in {r["stmt"] for r in kept}, f"{[r['stmt'] for r in kept]}")
     check("淘汰：被引用过的保留", "used" in {r["stmt"] for r in kept})
+    # 反向对照：**没被给过机会**的引理不许被淘汰——提示词预算有限，库里的引理
+    # 不一定每轮都进提示词；按"超龄即杀"淘汰的就不是僵尸，而是没抽到签的人。
+    check("淘汰：没进过提示词的引理不淘汰（给过机会才谈淘汰）",
+          "never_exposed" in {r["stmt"] for r in kept}, f"{[r['stmt'] for r in kept]}")
 
     rho = spearman([(1, 1), (2, 2), (3, 3), (4, 4)])
     check("忠实度：完全单调的两列 Spearman = 1.0", abs((rho or 0) - 1.0) < 1e-9, f"{rho}")
+
+
+def test_admission_and_bootstrap() -> None:
+    """**准入门槛不能要求新引理先有复用证据**（这是让库永远长不大的那道死锁）。
+
+    旧实现把 `reuse >= threshold` 当准入门槛，而新引理的 reuse 按构造是 0，
+    于是 `new_entries` 恒空、库永远为空。这里用两条互补的断言把它钉住：
+    ① 新候选（reuse=0）**必须**能被准入；② 超龄且没被给过机会的老引理不许被淘汰。
+    """
+    fresh = [
+        {"stmt": "N1", "key": "t1#0", "target": "t1"},
+        {"stmt": "N2", "key": "t2#0", "target": "t2"},
+        {"stmt": "N3", "key": "t3#0", "target": "t3"},
+    ]
+    admitted, diag = exploration_admission(fresh, library_size=0, library_budget=30,
+                                           exploration=2)
+    check("准入：空库 + 3 条新验证候选 → 按探索额度准入 2 条（不是 0 条）",
+          len(admitted) == 2, f"{diag}")
+    check("准入：诊断给出被额度挡下的条数", diag["dropped_by_quota"] == 1, f"{diag}")
+    admitted_full, diag_full = exploration_admission(fresh, library_size=0, library_budget=1,
+                                                    exploration=8)
+    check("准入：库容只剩 1 条时只准入 1 条", len(admitted_full) == 1, f"{diag_full}")
+    admitted_none, _ = exploration_admission(fresh, library_size=30, library_budget=30,
+                                             exploration=8)
+    check("准入：库满时准入 0 条（不是把库撑爆）", admitted_none == [])
+
+    # 冷启动：库里全是"还没有复用证据、但还在探索期"的引理 → 提示词必须能选到它们，
+    # 否则第一轮之后永远给不了库，reuse 也就永远测不出来。
+    library = [
+        {"stmt": "A", "name": "sgs_lem_a", "reuse": 0, "reuse_targets": [],
+         "cost_tokens": 20, "added_round": 0},
+        {"stmt": "B", "name": "sgs_lem_b", "reuse": 0, "reuse_targets": [],
+         "cost_tokens": 20, "added_round": 0},
+    ]
+    chosen, _, diag2 = select_by_reuse(library, ctx_budget=1200, threshold=2,
+                                       round_index=0, evict_after=3)
+    check("冷启动：库里没有复用证据时，探索期引理仍会被注入提示词",
+          len(chosen) == 2, f"{diag2}")
+    chosen_stale, _, diag3 = select_by_reuse(library, ctx_budget=1200, threshold=2,
+                                             round_index=9, evict_after=3)
+    check("冷启动：超龄且无复用证据的引理不再注入（如实返回空集）",
+          chosen_stale == [] and diag3["exploring"] == 0, f"{diag3}")
+
+
+def test_reuse_measurement() -> None:
+    """复用测量的口径：按**不同目标**去重、只数**通过验收**的证明、常量取叶子名。"""
+    traces = [
+        # 目标 t1 的两篇候选都引用了 sgs_lem_a → 只算 1 个目标
+        {"id": "c:t1#0", "target": "t1", "verified": True,
+         "constants": ["SgsLean.sgs_lem_a", "Nat.add_comm"]},
+        {"id": "c:t1#1", "target": "t1", "verified": True, "constants": ["sgs_lem_a"]},
+        # 目标 t2 的证明没过验收 → 它的引用不算复用
+        {"id": "c:t2#0", "target": "t2", "verified": False, "constants": ["sgs_lem_a"]},
+        # 目标 t3 通过验收且引用 → t1、t3 两个不同目标
+        {"id": "c:t3#0", "target": "t3", "verified": True,
+         "constants": ["sgs_lem_a", "sgs_lem_b"]},
+    ]
+    cited = RoundRunner.measure_reuse(_Stub(), traces)
+    check("复用测量：按不同目标去重（t1 两篇只算 1）", cited.get("sgs_lem_a") == {"t1", "t3"},
+          f"{cited}")
+    check("复用测量：失败证明里的引用不算复用（t2 不在集合里）",
+          "t2" not in (cited.get("sgs_lem_a") or set()), f"{cited}")
+    check("复用测量：点号全名按叶子名计数（SgsLean.sgs_lem_a 也算）",
+          "sgs_lem_a" in cited, f"{cited}")
+    check("复用测量：只被 1 个目标引用的引理 reuse=1", cited.get("sgs_lem_b") == {"t3"},
+          f"{cited}")
+
+
+class _Stub:
+    """`measure_reuse` 不碰实例状态，借用它做纯函数测试。"""
+
+
+def test_reuse_persistence(tmp_root: Path) -> None:
+    """复用测量**必须落盘**：否则淘汰读到的是"每条 reuse 都是 0"，检索也没有排序键。"""
+    from sgsr.pipeline.library import load as load_library, name_for
+    from sgsr.pipeline.runner import RoundConfig, RoundReport
+
+    library_path = tmp_root / "persist_library.jsonl"
+    stmt_a = "∀ (n : Nat), n + 0 = n"
+    stmt_b = "∀ (n : Nat), 0 + n = n"
+    name_a, name_b = name_for(stmt_a), name_for(stmt_b)
+    library_path.write_text(
+        json.dumps({"stmt": stmt_a, "proof": "intro n\nrfl", "verified": True,
+                    "name": name_a, "source_target": "g01", "source_corpus": "C1",
+                    "added_round": 0}, ensure_ascii=False) + "\n"
+        + json.dumps({"stmt": stmt_b, "proof": "intro n\nrfl", "verified": True,
+                      "name": name_b, "source_target": "g02", "source_corpus": "C1",
+                      "added_round": 0}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    config = RoundConfig(round_index=1)
+    runner = RoundRunner.__new__(RoundRunner)      # 只测这一件事，不建 Lean 连接
+    runner.config = config
+    runner.library_path = library_path
+    runner.log = lambda *_a, **_k: None
+    report = RoundReport(round_index=1, started_at="")
+    cited = {name_a: {"t1", "t2"}, name_b: {"t1"}}
+    runner.update_library(report, cited, prompt_names={name_a})
+    rows = {row["name"]: row for row in load_library(library_path)}
+    check("复用落盘：reuse 与 reuse_targets 写进库文件（淘汰/检索都靠它）",
+          rows[name_a].get("reuse") == 2 and rows[name_a].get("reuse_targets") == ["t1", "t2"],
+          f"{rows[name_a]}")
+    check("复用落盘：cost_tokens 一并写进库（检索层的排序键）",
+          int(rows[name_a].get("cost_tokens") or 0) > 0, f"{rows[name_a]}")
+    check("复用落盘：进过提示词的引理曝光计数 +1（没进的不加）",
+          rows[name_a].get("exposures") == 1 and rows[name_b].get("exposures") == 0,
+          f"{rows[name_a]} / {rows[name_b]}")
+    check("复用落盘：报告里的复用分布被填上",
+          report.reuse.get("size") == 2 and report.reuse.get("buckets", {}).get("reusable") == 1,
+          f"{report.reuse}")
 
 
 def test_prover_module_api() -> None:
@@ -397,6 +547,9 @@ def main() -> int:
     test_role_guard()
     test_lean_file_parsing()
     test_selection_and_eviction()
+    test_admission_and_bootstrap()
+    test_reuse_measurement()
+    test_reuse_persistence(scratch_dir("reuse_persist"))
     test_prover_module_api()
 
     if not args.no_lean:

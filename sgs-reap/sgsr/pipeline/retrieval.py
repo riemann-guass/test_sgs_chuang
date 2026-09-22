@@ -53,6 +53,10 @@ class Premise:
     source: str          # "library" | "mathlib"
     tokens: int = 0
     score: float = 0.0
+    #: 库条目的 `reuse/cost` 密度（规格 5.5 的 score(l)）；外部检索没有这个量。
+    #: 它才是项目的方法性判据，**排序必须用它**——以前 `retrieve()` 最后按
+    #: `score`（符号重叠）重排，把库层好不容易按密度排好的顺序整个丢掉了。
+    density: float | None = None
 
 
 @dataclass
@@ -135,6 +139,7 @@ def retrieve_library(stmt: str, lib: list[dict], n: int = 8) -> list[Premise]:
                 source="library",
                 tokens=estimate_tokens(text),
                 score=overlap_score(text, query),
+                density=_reuse_density(row),
             )
         )
     return out
@@ -184,6 +189,7 @@ def retrieve_mathlib(
                 source="mathlib",
                 tokens=estimate_tokens(text),
                 score=float(item.get("score") or 0.0),
+                density=None,
             )
         )
     return out
@@ -216,12 +222,20 @@ def retrieve(
         degraded=not mathlib_endpoint,
         notes=[] if mathlib_endpoint else ["未配置外部检索端点（第二层跳过）"],
     )
+    if library_rows and not any(row.get("reuse") is not None for row in library_rows):
+        # 库里有引理但一条复用记录都没有：排序只能退回符号重叠。这不是错（第一轮
+        # 本来就还没有复用证据），但必须写在报告里，否则"库没起作用"无法归因。
+        result.notes.append(
+            f"库 {len(library_rows)} 条均无 reuse 记录，库层排序退回符号重叠"
+        )
     if mathlib_endpoint and not mathlib_premises:
         result.notes.append("外部检索返回空（端点不可用或没有命中）")
 
     ranked = sorted(
         library_premises + mathlib_premises,
-        key=lambda p: (p.score, p.source == "library"),
+        # 第一键是项目判据（reuse/cost 密度），第二键是符号重叠，第三键让库优先。
+        key=lambda p: (p.density if p.density is not None else -1.0,
+                       p.score, p.source == "library"),
         reverse=True,
     )
     remaining = budget

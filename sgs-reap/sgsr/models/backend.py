@@ -68,7 +68,16 @@ class Backend:
         if key in self._cache:
             self.cache_hits += 1
             cached = self._cache[key]
-            return cached["text"], {**cached["meta"], "cache_hit": True}
+            # 命中缓存 = **没有真的调后端** = 没有花 token。
+            # 旧实现把上一次的 usage 原样返回，于是同一道题重跑会让
+            # `CostPerSolved` 翻倍（成本指标算的是钱，不是"如果重算一遍要多少钱"）。
+            # 原值留在 `cached_usage` 里供审计，但 `usage` 必须清零。
+            return cached["text"], {
+                **cached["meta"],
+                "cache_hit": True,
+                "usage": {},
+                "cached_usage": cached["meta"].get("usage", {}),
+            }
 
         payload = {
             "model": self.model,

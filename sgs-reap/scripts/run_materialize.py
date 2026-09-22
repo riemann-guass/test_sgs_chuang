@@ -23,6 +23,11 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from sgsr.pipeline.library import name_for  # noqa: E402
+from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
+
 SGSLEAN = ROOT / "sgslean"
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
@@ -31,21 +36,11 @@ LAKE = os.environ.get("LAKE", "lake")
 
 
 def run_server(requests: list[dict], timeout: float = 1800.0) -> dict[str, dict]:
-    lines = [json.dumps(r, ensure_ascii=False) for r in requests]
-    lines.append(json.dumps({"id": "__flush__", "cmd": "flush"}))
-    proc = subprocess.run(
-        [LAKE, "exe", "sgslean-server"],
-        cwd=str(SGSLEAN),
-        input=("\n".join(lines) + "\n").encode("utf-8"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-    )
-    out: dict[str, dict] = {}
-    for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
-        item = json.loads(line)
-        out[str(item.get("id"))] = item
-    return out
+    """统一走常驻客户端（见 `sgsr/verification/client.py`）。"""
+    with LeanServer(imports=os.environ.get("SGSLEAN_IMPORTS", "Mathlib"),
+                    heartbeats=budget_for_jobs(len(requests)),
+                    stderr_path=RESULTS / "materialize_stderr.log") as server:
+        return server.batch(requests, timeout=timeout)
 
 
 def main() -> int:
@@ -74,7 +69,10 @@ def main() -> int:
         if result.get("ok") is True:
             entries.append(
                 {"stmt": lemma["statement"], "proof": lemma["reference_proof"],
-                 "verified": True, "source": f"g1:{lemma['id']}"}
+                 "verified": True, "source": f"g1:{lemma['id']}",
+                 # 名字必须与库行的命名规则一致（内容哈希），否则物化出来的常量名
+                 # 与提示词里给的名字对不上。
+                 "name": name_for(lemma["statement"])}
             )
         else:
             rejected.append({"id": lemma["id"], "reason": result.get("reason")})

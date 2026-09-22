@@ -26,25 +26,23 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 import time
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from sgsr.utils.http_client import soft_post_json  # noqa: E402
 from sgsr.pipeline.demand import mine  # noqa: E402
 from sgsr.data.schema import load_jsonl, trace_from_job, validate_trace  # noqa: E402
+from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-SGSLEAN = ROOT / "sgslean"
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
 RUNS = ROOT / "experiments" / "runs"
-LAKE = os.environ.get("LAKE", "lake")
 DECOYS = ["exact ?_"]  # 真跑时给每条目标补一条诱饵，制造失败轨迹
 
 
@@ -80,31 +78,16 @@ def self_test() -> int:
 
 
 def http_post(url: str, payload: dict, timeout: float = 300.0) -> dict:
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return soft_post_json(url, payload, timeout=timeout)
 
 
 def run_lean_batch(requests: list[dict], timeout: float = 3600.0) -> tuple[dict[str, dict], int]:
-    lines = [json.dumps(r, ensure_ascii=False) for r in requests]
-    lines.append(json.dumps({"id": "__flush__", "cmd": "flush"}))
-    proc = subprocess.run(
-        [LAKE, "exe", "sgslean-server"],
-        cwd=str(SGSLEAN),
-        input=("\n".join(lines) + "\n").encode("utf-8"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-    )
-    responses: dict[str, dict] = {}
-    frontend_ms = 0
-    for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
-        item = json.loads(line)
-        rid = str(item.get("id"))
-        if rid == "__flush__":
-            frontend_ms = (item.get("result") or {}).get("frontend_ms", 0)
-        responses[rid] = item
+    """一批 `trace` 作业 → `{id: 响应}`（统一走常驻客户端，见 run_gate_g1 的说明）。"""
+    with LeanServer(imports=os.environ.get("SGSLEAN_IMPORTS", "Mathlib"),
+                    heartbeats=budget_for_jobs(len(requests)),
+                    stderr_path=RESULTS / "g2_stderr.log") as server:
+        responses = server.batch(requests, timeout=timeout)
+        frontend_ms = server.frontend_ms_total
     return responses, frontend_ms
 
 

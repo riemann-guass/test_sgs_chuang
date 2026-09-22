@@ -77,6 +77,10 @@ def main() -> int:
                         help="复用门槛：被至少这么多不同目标引用过才准入")
     parser.add_argument("--evict-after", type=int, default=3,
                         help="僵尸淘汰：reuse=0 且入库超过这么多轮 → 冷存")
+    parser.add_argument("--exploration-slots", type=int, default=8,
+                        help="探索额度：一轮最多让多少条没有复用证据的新引理入库")
+    parser.add_argument("--prompt-slots", type=int, default=16,
+                        help="提示词里最多放几条引理（与 proxy 的截断上限一致）")
     parser.add_argument("--source-corpus", default="C1",
                         help="本库的来源语料标识（C/C1/C2/C3；写进每条引理供事后审计）")
     parser.add_argument("--library", default=str(DEFAULT_LIBRARY))
@@ -131,6 +135,8 @@ def main() -> int:
         source_corpus=args.source_corpus,
         reuse_threshold=args.reuse_threshold,
         evict_after=args.evict_after,
+        exploration_slots=args.exploration_slots,
+        prompt_slots=args.prompt_slots,
         ctx_lemma_tokens=args.ctx_tokens,
     )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -168,6 +174,16 @@ def main() -> int:
     for row in summary["per_round"]:
         print(f"        round {row['round']}: 解出 {row['targets_solved']}；候选 {row['candidates']}；"
               f"过硬门 {row['passed_hard_gates']}；验证通过 {row['verified']}；入库 {row['library_written']}")
+    # 复用判据的现场证据：有多少条达到门槛、多少条被目标侧证明引用过、提示词给了几条。
+    # 这三条一起看才能回答"库到底有没有进入环路"。
+    for report in reports:
+        buckets = (report.reuse.get("buckets") or {})
+        print(f"        round {report.round_index}: 库 {report.funnel.get('library_size', 0)} 条"
+              f"（可复用 {buckets.get('reusable', 0)}、被用过一次 {buckets.get('used_once', 0)}、"
+              f"未用 {buckets.get('unused', 0)}）；"
+              f"本轮被引用 {report.funnel.get('cited_lemmas', 0)} 条 / "
+              f"{report.funnel.get('cited_targets', 0)} 次目标引用；"
+              f"提示词注入 {report.funnel.get('prompt_size', 0)} 条")
     print(f"[round] 报告 {out_path}；逐轮 {run_dir}")
     return 0
 

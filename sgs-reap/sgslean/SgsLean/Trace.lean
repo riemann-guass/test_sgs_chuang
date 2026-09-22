@@ -28,6 +28,7 @@ v1 只取主目标类型，实测会把 `P` 这类**裸变量名**当成跨目�
 module
 
 public meta import SgsLean.Basic
+public meta import SgsLean.Measure.Dependency
 public meta import SgsLean.Verify
 
 open Lean Meta Elab Tactic
@@ -54,6 +55,12 @@ structure TraceResult where
   /-- 整篇证明的验证结论（来自 `Verify.verify`，即 kernel 终检过的真值）。 -/
   verified : Bool
   reason : String
+  /-- 证明项里直接出现的常量名（来自 `Measure.dependencies`）。
+
+  复用判据 `reuse(l)` 要数"l 被多少个不同目标的**通过验收的**证明实际引用"，
+  这个字段就是那个"实际引用"的**唯一**来源。以前轨迹里没有它，闭环只能去数
+  **候选引理**的依赖（而那些候选是在没有库的条件下求解的），于是 reuse 恒为 0。 -/
+  constants : Array String := #[]
   steps : Array TraceStep := #[]
 deriving ToJson, Repr, Inhabited
 
@@ -81,7 +88,10 @@ def goalSignature (goals : List MVarId) : MetaM String := do
 
 /-- 逐步跑一遍 `proof`，记录每一步之后的子目标签名。 -/
 def traceScript (stmt proof : String) : TacticM TraceResult := do
-  let verdict ← Verify.verify stmt proof
+  -- 用 `Measure.dependencies` 而不是裸 `Verify.verify`：它内部**同样**跑
+  -- `Verify.verify`（判定不变），额外把证明项里的常量抽出来。两条判定路径合成一条，
+  -- 既不增加导入也不增加一次重放。
+  let dep ← Measure.dependencies stmt proof
   let steps ← withoutModifyingState do
     match ← elabStmtType (normalizeNewlines stmt) with
     | .error _ => pure #[]
@@ -106,7 +116,13 @@ def traceScript (stmt proof : String) : TacticM TraceResult := do
             | .error err => classifyError err
         }
       pure acc
-  return { stmt := normalizeStmt stmt, verified := verdict.ok, reason := verdict.reason, steps := steps }
+  return {
+    stmt := normalizeStmt stmt
+    verified := dep.verified
+    reason := if dep.verified then "ok" else dep.reason
+    constants := dep.constants
+    steps := steps
+  }
 
 end Trace
 end SgsLean

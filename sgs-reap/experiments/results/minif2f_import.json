@@ -3,134 +3,17 @@
     "valid": {
       "files": 244,
       "parsed": 244,
-      "accepted": 229,
-      "rejected": 15,
-      "rejected_rows": [
-        {
-          "id": "aime_1984_p15",
-          "reason": "exception",
-          "detail": "{\"tacticException\":{\"message\":\"(deterministic) timeout at `whnf`, maximum number of heartbeats (4000) has been reached\\n\\nNote: Use `set_option maxHeartbeats <num>` to set the limit.(invalid MessageDa"
-        },
-        {
-          "id": "aime_1997_p11",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `π`\",\"endPos\":{\"column\":17,\"line\":5},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean."
-        },
-        {
-          "id": "amc12a_2020_p21",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:75: expected ')'\"}}"
-        },
-        {
-          "id": "amc12b_2002_p3",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:228: unexpected end of input; expected ','\"}}"
-        },
-        {
-          "id": "imo_1962_p4",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `π`\",\"endPos\":{\"column\":28,\"line\":7},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean."
-        },
-        {
-          "id": "imo_1965_p1",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `π`\",\"endPos\":{\"column\":17,\"line\":4},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean."
-        },
-        {
-          "id": "imo_1966_p4",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `π`\",\"endPos\":{\"column\":19,\"line\":5},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean."
-        },
-        {
-          "id": "induction_ineq_nsqlefactn",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:54: expected no space before or term\"}}"
-        },
-        {
-          "id": "mathd_algebra_31",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `𝓝`\",\"endPos\":{\"column\":13,\"line\":7},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean."
-        },
-        {
-          "id": "mathd_algebra_480",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `π`\",\"endPos\":{\"column\":32,\"line\":7},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean."
-        },
-        {
-          "id": "mathd_algebra_536",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:20: expected end of input\"}}"
-        },
-        {
-          "id": "mathd_numbertheory_169",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:28: expected end of input\"}}"
-        },
-        {
-          "id": "mathd_numbertheory_252",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:19: expected end of input\"}}"
-        },
-        {
-          "id": "mathd_numbertheory_43",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:51: expected '=>' or '}'\"}}"
-        },
-        {
-          "id": "mathd_numbertheory_739",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:19: expected end of input\"}}"
-        }
-      ]
+      "accepted": 244,
+      "rejected": 0,
+      "rejected_rows": []
     },
     "test": {
       "files": 244,
       "parsed": 244,
-      "accepted": 236,
-      "rejected": 8,
-      "rejected_rows": [
-        {
-          "id": "aime_1999_p11",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `π`\",\"endPos\":{\"column\":2,\"line\":6},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean.u"
-        },
-        {
-          "id": "amc12_2001_p5",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:106: expected ')', ',' or ':'\"}}"
-        },
-        {
-          "id": "amc12a_2003_p23",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:112: expected subscript character; expected term\"}}"
-        },
-        {
-          "id": "amc12b_2020_p6",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:119: expected no space before or term\"}}"
-        },
-        {
-          "id": "imo_1963_p5",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `π`\",\"endPos\":{\"column\":0,\"line\":3},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean.u"
-        },
-        {
-          "id": "imo_1969_p2",
-          "reason": "unknown_identifier",
-          "detail": "{\"tacticErrorMessages\":{\"messages\":[{\"caption\":\"\",\"data\":\"Unknown identifier `π`\",\"endPos\":{\"column\":13,\"line\":10},\"fileName\":\"sgslean_snippet.lean\",\"isSilent\":false,\"keepFullRange\":false,\"kind\":\"lean"
-        },
-        {
-          "id": "induction_nfactltnexpnm1ngt3",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:45: expected end of input\"}}"
-        },
-        {
-          "id": "mathd_numbertheory_457",
-          "reason": "parse_error",
-          "detail": "{\"parseError\":{\"message\":\"<input>:1:57: expected subscript character; expected term\"}}"
-        }
-      ]
+      "accepted": 244,
+      "rejected": 0,
+      "rejected_rows": []
     }
   },
-  "chunk": 125
+  "chunk": 0
 }

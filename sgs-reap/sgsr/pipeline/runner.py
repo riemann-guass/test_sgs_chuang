@@ -22,18 +22,20 @@
 * `test`（T）：只在最终评测时读一次。本模块默认**拒绝**读它（`--allow-test` 才放行，
   且放行时不给建库）。
 
-## 为什么"选择"用的是覆盖而不是分数
+## 选择层现在怎么做（2026-09-22 重修）
 
-N2 的目标是"给定工作负载，选哪一小组引理入库"——这是数据库里的**物化视图选择**问题，
-`cover(S) = |{w ∈ W : w 能被 S 帮助证明}|` 是并集形式，天然单调子模，贪心有 (1−1/e) 界。
+三件事分开，各用各的量（此前挤成一个"门槛"，结果库既长不大也长不住）：
 
-但**真 cover 需要两臂测量**（有库/无库各跑一遍），代价高。所以分两层：
+* **准入**：本轮验证通过的候选按**探索额度**入库（`coverage.exploration_admission`）。
+  新引理的 `reuse` 按构造是 0，**不能**拿它当准入门槛。
+* **复用测量**：`reuse(l)` = l 被多少个**不同目标**的**通过验收的**证明实际引用，
+  从**目标侧**的轨迹里数（那里才给了库）。测到的值连同 `reuse_targets` 落盘。
+* **淘汰**：`reuse=0` **且被给过机会（进过提示词）** 且超龄 → 冷存。没被给过机会
+  的引理不淘汰——否则淘汰的是没抽到签的人。
+* **提示词注入**：下一轮的提示词集合由 `coverage.select_by_reuse`（密度贪心 +
+  探索期补位）在 token 预算内选出，不再是"取前 N 条"。
 
-* **选择时**用廉价代理 `parent_cover`：一条候选"覆盖"的是它**为之生成的那个目标**
-  （父目标关系来自生成过程，不来自测量，因此不循环）。贪心就是"在库容 B 内覆盖尽量多不同目标"。
-  这与"视图是为某些查询建的"结构完全一致。
-* **评测时**用 `proved_cover`（`scripts/run_gate_g3_real.py`）验证代理是否忠实——
-  这正是最初计划里闸门 G3 要回答的问题。
+评测侧仍用 `proved_cover`（`scripts/run_gate_g3_real.py`）做两臂真 cover。
 """
 
 from __future__ import annotations
@@ -41,18 +43,23 @@ from __future__ import annotations
 import collections
 import json
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sgsr.pipeline.conjecture import generate as conjecture_generate
 from sgsr.pipeline.conjecture import load_demand, load_seeds
-from sgsr.pipeline.coverage import evict as coverage_evict
-from sgsr.pipeline.coverage import select_by_reuse
+from sgsr.utils.http_client import BackendUnavailable, soft_post_json
+from sgsr.pipeline.coverage import cost_of, evict as coverage_evict
+from sgsr.pipeline.coverage import exploration_admission, reuse_table, select_by_reuse
 from sgsr.pipeline.demand import mine as mine_demand
-from sgsr.pipeline.library import add_many, assert_clean_sources, load as load_library
+from sgsr.pipeline.library import (
+    add_many,
+    assert_clean_sources,
+    load as load_library,
+    name_for,
+    write_all as write_library,
+)
 from sgsr.pipeline.retrieval import symbols
 from sgsr.data.schema import candidate_id, normalize_sig, target_of, trace_from_job
 
@@ -190,9 +197,14 @@ class RoundConfig:
     #: 提示词预算（token）：选择层的约束口径（规格 5.5 节默认 1200）
     ctx_lemma_tokens: int = 1_200
     #: 复用门槛：被至少这么多**不同目标**引用过才准入（与 CostPerReusable 口径一致）
+    #: **只用于成本口径与保留判据**，不当准入门槛（新引理按构造没有复用证据）。
     reuse_threshold: int = 2
     #: 僵尸淘汰：`reuse=0` 且入库超过这么多轮 → 冷存
     evict_after: int = 3
+    #: 探索额度：一轮最多让多少条"还没有复用证据"的新引理入库 / 进提示词
+    exploration_slots: int = 8
+    #: 提示词里最多放几条引理（与 `proxy.handle_solve` 的截断上限保持一致）
+    prompt_slots: int = 16
     #: 本库的来源语料标识（写进每条引理的 `source_corpus`，供事后审计）
     source_corpus: str = "C1"
     target_limit: int = 0             # 本轮用多少条 C 目标（0 = 全部）
@@ -213,6 +225,10 @@ class RoundReport:
     selected: list[dict] = field(default_factory=list)
     #: 选择层诊断（密度贪心 vs 最优单条、预算用量、被门槛拦下的条数）
     selection: dict = field(default_factory=dict)
+    #: 准入诊断（探索额度、库容、被额度挡下的条数）
+    admission: dict = field(default_factory=dict)
+    #: 复用分布与下一轮提示词集合（"库到底有没有被用上"的直接证据）
+    reuse: dict = field(default_factory=dict)
     timing_s: float = 0.0
 
     def to_dict(self) -> dict:
@@ -228,6 +244,8 @@ class RoundReport:
             "cover_delta": self.cover_delta,
             "selected": self.selected,
             "selection": self.selection,
+            "admission": self.admission,
+            "reuse": self.reuse,
             "timing_s": round(self.timing_s, 1),
         }
 
@@ -236,23 +254,28 @@ class RoundReport:
 
 
 def _post(url: str, payload: dict, timeout: float = 300.0) -> dict:
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return {"error": {"code": f"http_{exc.code}",
-                          "message": exc.read().decode("utf-8", "replace")[:300]}}
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"error": {"code": "network", "message": str(exc)}}
+    """软失败 POST（错误收进 `{"error": ...}`）。HTTP 实现见 `sgsr/models/http.py`。"""
+    return soft_post_json(url, payload, timeout=timeout)
 
 
 def solve(statement: str, k: int, endpoint: str, library: list[dict] | None = None) -> list[str]:
+    """调 `/solve` 取候选证明。
+
+    **后端错误必须抛出去**：离线闭环以前把它吞成空列表，于是"服务挂了"与
+    "模型没生成出候选"在报告里长得一模一样——这与在线侧刻意区分
+    `backend_error` 的做法自相矛盾（审计点名的失真来源）。
+    """
     payload: dict = {"statement": statement, "num_samples": k}
     if library:
         payload["library"] = library
     response = _post(endpoint, payload)
+    error = response.get("error") if isinstance(response, dict) else None
+    if isinstance(error, dict):
+        raise BackendUnavailable(
+            f"{error.get('code', 'error')}: {error.get('message', '')}"
+        )
+    if not isinstance(response, dict):
+        raise BackendUnavailable(f"/solve 响应不是对象：{str(response)[:200]}")
     return [p.get("proof", "") for p in (response.get("proofs") or []) if p.get("proof", "").strip()]
 
 
@@ -285,18 +308,27 @@ class RoundRunner:
         self._batches = 0
 
     # ---- ① 采轨迹 ----
-    def collect(self, targets: list[dict], library: list[dict]) -> tuple[list[dict], list[dict]]:
+    def collect(self, targets: list[dict], library: list[dict]
+                ) -> tuple[list[dict], list[dict], list[dict]]:
         """在目标集上跑 Solver → 记录每条候选证明的轨迹（含子目标签名）。
 
-        返回 `(traces, attempts)`：traces 供需求挖掘；attempts 供后续验证。
+        返回 `(traces, attempts, backend_errors)`：traces 供需求挖掘**与复用测量**；
+        attempts 供诊断；backend_errors 是"装置挂了"的记录（**必须**与"模型没解出"
+        分开，否则一次 503 会伪装成 0% 解出率）。
+
         `attempts` 里的 `id` 是**候选作业**标识、`target` 是**数学目标**标识——
         两者必须分开（见 `sgsr/data/schema.py` 的 P0 说明），否则需求统计会把
         一条目标的 k 篇候选当成 k 个不同目标。
         """
         attempts: list[dict] = []
+        backend_errors: list[dict] = []
         for target in targets:
-            proofs = solve(target["statement"], self.config.k_solve,
-                           self.config.solve_endpoint, library=library)
+            try:
+                proofs = solve(target["statement"], self.config.k_solve,
+                               self.config.solve_endpoint, library=library)
+            except BackendUnavailable as exc:
+                backend_errors.append({"target": target["id"], "error": str(exc)})
+                continue
             for idx, proof in enumerate(proofs):
                 attempts.append({
                     "id": candidate_id(f"c:{target['id']}", idx),
@@ -315,28 +347,64 @@ class RoundRunner:
             for attempt in attempts:
                 result = (responses.get(attempt["id"]) or {}).get("result") or {}
                 traces.append(trace_from_job(attempt, result))
-        return traces, attempts
+        return traces, attempts, backend_errors
+
+    # ---- ②′ 复用测量 ----
+    def measure_reuse(self, traces: list[dict]) -> dict[str, set[str]]:
+        """`reuse(l)` 的原始材料：`{引理名: {引用过它的不同目标}}`。
+
+        规格 5.1 的定义是"被多少个**不同目标**的**通过验收的**证明实际引用"，
+        所以：
+
+        * 只看 `verified=true` 的轨迹（失败证明里出现名字不算复用）；
+        * 按 `target` 去重（一条目标的 k 篇候选只算 1）；
+        * 引用来自 Lean 侧抽出的**常量集合**（`Trace` 现在一并返回 `constants`），
+          不是对证明文本做子串搜索。
+
+        **必须用目标侧的轨迹**：目标是带着库提示词求解的；候选引理自己是"新命题"，
+        求解时并没有得到库，从它那里数引用永远数出 0（这正是上一版的死结）。
+        """
+        cited: dict[str, set[str]] = {}
+        for trace in traces:
+            if trace.get("verified") is not True:
+                continue
+            target = str(trace.get("target") or "")
+            for constant in trace.get("constants") or []:
+                leaf = str(constant).rsplit(".", 1)[-1]
+                if leaf.startswith("sgs_lem_"):
+                    cited.setdefault(leaf, set()).add(target)
+        return cited
 
     # ---- ② 需求 ----
     def demand(self, traces: list[dict]) -> dict:
         return mine_demand(traces)
 
     # ---- ③ 猜想 ----
-    def conjecture(self, targets: list[dict], demand_sigs: list[str], seeds: list[str]) -> list[dict]:
+    def conjecture(self, targets: list[dict], demand_sigs: list[str],
+                   seeds: list[str]) -> tuple[list[dict], list[dict]]:
+        """对每个未解目标请求候选引理。返回 `(候选, backend_errors)`。
+
+        端点报错**必须**单独返回：以前 `ConjectureResult.error` 被直接丢弃，
+        于是一次 503 在报告里表现得和"猜想器什么都没产出"一模一样。
+        """
         out: list[dict] = []
+        backend_errors: list[dict] = []
         for target in targets:
             result = conjecture_generate(
                 self.config.conjecture_endpoint, target, demand_sigs, seeds,
                 self.config.n_conjecture,
             )
+            if result.error:
+                backend_errors.append({"target": target["id"], "error": result.error})
+                continue
             for candidate in result.candidates:
                 out.append({
                     "key": candidate_id(target["id"], int(candidate["index"])),
-                    "target": target["id"],                        # 父目标（供 parent_cover 用）
+                    "target": target["id"],                        # 父目标（供来源审计）
                     "target_statement": target["statement"],
                     "stmt": candidate["type"],
                 })
-        return out
+        return out, backend_errors
 
     # ---- ④ 判据层：门检 + 硬门 ----
     def screen(self, candidates: list[dict], library: list[dict], report: RoundReport) -> list[dict]:
@@ -446,89 +514,73 @@ class RoundRunner:
             verified.append(cand)
         return verified
 
-    # ---- ⑧ 选择 ----
-    def select(
-        self,
-        verified: list[dict],
-        library: list[dict],
-        traces: list[dict],
-    ) -> tuple[list[dict], list[float], dict]:
-        """N2：**按复用判据**选引理（规格 5.5 节的密度贪心）。
+    # ---- ⑧ 准入 / 复用记账 / 注入集合 ----
+    def select(self, verified: list[dict], library: list[dict]) -> tuple[list[dict], dict]:
+        """**准入**：本轮验证通过的候选里，哪些允许入库（规格 5.5 的探索额度）。
 
-        这是项目唯一的方法性改动，所以这里必须用真判据而不是父目标代理：
-
-        * `reuse(l)` = l 被多少个**不同目标**的**通过验收的**证明实际引用；
-        * 只统计**通过验收**的证明（`attempts` 里过内核的那些），
-          失败的尝试里出现某个名字不算复用——否则模型乱写名字就能刷分；
-        * 引用从 Lean 侧抽出的**常量集合**（`dependencies` 的 `constants`）里取，
-          不是对证明文本做子串搜索。
-
-        本轮的测量范围（诚实地写进报告）：`reuse` 用**本轮**的验收证明算，
-        `reuse_targets` 也只含本轮引用过它的目标。这与规格 5.5 节"在 W_sel 上、
-        给库条件下"的完整定义差一项——那需要两臂测量（`scripts/run_gate_g3_real.py`）。
-        差别是**口径更窄**（不含历史轮次、不含在线任务），不会虚高。
+        这里**不用** `reuse >= threshold`：新引理的 `reuse` 按构造是 0（还没有任何
+        目标引用过它），拿它当准入门槛就是"要求新兵先有战功"——库永远长不大，
+        这正是上一版的死锁。复用证据的作用在别处：保留/淘汰与提示词排序。
         """
-        # 库条目的物化名：`Materialize.emit` 按**顺序**命名 `sgs_lem_<i+1>`，
-        # 所以名字必须按库内顺序推，不能按语句内容猜。
-        named_library = [
-            dict(row, name=f"sgs_lem_{index + 1}") for index, row in enumerate(library)
-        ]
-        name_by_stmt = {normalize_sig(row["stmt"]): row["name"] for row in named_library}
+        admitted, diagnostics = exploration_admission(
+            verified,
+            library_size=len(library),
+            library_budget=self.config.library_budget,
+            exploration=self.config.exploration_slots,
+        )
+        return admitted, diagnostics
 
-        # 按目标去重后统计引用：同一目标的多篇候选引用同一条引理只记 1 次
-        cited_by_target: dict[str, set[str]] = {}
-        for row in verified:
-            target = str(row.get("target") or "")
-            for constant in row.get("constants") or []:
-                leaf = str(constant).rsplit(".", 1)[-1]
-                if not leaf.startswith("sgs_lem_"):
-                    continue
-                cited_by_target.setdefault(leaf, set()).add(target)
+    def prompt_set(self, library: list[dict], report: RoundReport) -> list[dict]:
+        """下一轮提示词里的引理集合（token 预算下的密度贪心 + 探索期补位）。
 
-        pool: list[dict] = []
-        for row in named_library:
-            cited = cited_by_target.get(row["name"], set())
-            pool.append(dict(row, reuse=len(cited), reuse_targets=sorted(cited)))
-
-        # 候选池 = 已有库条目 + 本轮验证通过的候选（后者尚未入库，reuse 为 0）
-        existing_stmts = {normalize_sig(row["stmt"]) for row in named_library}
-        for cand in verified:
-            if normalize_sig(cand["stmt"]) in existing_stmts:
-                continue
-            pool.append({
-                "stmt": cand["stmt"],
-                "name": f"candidate:{cand['key']}",
-                "reuse": 0,
-                "reuse_targets": [],
-                "candidate": cand,
-            })
-
+        以前这里是 `library[:seeds_limit]`——按**位置**取前 N 条，于是库一超过
+        N 条，后面的引理**永远拿不到出场机会**，`reuse` 永远是 0，然后按"reuse=0
+        且超龄"被淘汰。选择层的方法性改动（密度贪心）根本没参与过注入。
+        """
         chosen, gains, diagnostics = select_by_reuse(
-            pool,
+            library,
             ctx_budget=self.config.ctx_lemma_tokens,
             threshold=self.config.reuse_threshold,
-            count_budget=max(0, self.config.library_budget - len(library)),
+            count_budget=self.config.prompt_slots,
+            round_index=self.config.round_index,
+            evict_after=self.config.evict_after,
+            exploration=self.config.exploration_slots,
         )
-        # 只有"本轮新验证、且被选中"的候选才入库；已在库里的条目不再重复写
-        new_entries = [row["candidate"] for row in chosen if "candidate" in row]
-        return new_entries, gains, diagnostics
+        report.selection = diagnostics
+        report.funnel["greedy_gains"] = gains
+        report.funnel["prompt_size"] = len(chosen)
+        return chosen
 
-    def evict(self, report: RoundReport) -> list[dict]:
-        """僵尸淘汰：`reuse=0` 且入库超过 R_evict 轮的引理移入冷存（不删除）。"""
+    def update_library(self, report: RoundReport, cited: dict[str, set[str]],
+                       prompt_names: set[str]) -> list[dict]:
+        """把本轮的复用测量、曝光计数写回库，并淘汰僵尸。返回被冷存的条目。
+
+        **必须落盘**：`reuse` 只留在内存里的话，淘汰读到的是"每条 reuse 都是 0"，
+        于是所有老引理一律被杀；检索层的 `reuse/cost` 排序键也永远缺席。
+        全库重写集中在这一处（`library.write_all`），不与其他写入路径并存。
+        """
         library = load_library(self.library_path)
+        for row in library:
+            name = str(row.get("name") or name_for(str(row.get("stmt", ""))))
+            row["name"] = name
+            seen = set(row.get("reuse_targets") or [])
+            seen |= cited.get(name, set())
+            row["reuse_targets"] = sorted(seen)
+            row["reuse"] = len(seen)
+            row["cost_tokens"] = cost_of(row)
+            if name in prompt_names:
+                row["exposures"] = int(row.get("exposures") or 0) + 1
+            row.setdefault("exposures", 0)
         kept, evicted = coverage_evict(library, self.config.round_index,
                                        evict_after=self.config.evict_after)
-        if not evicted:
-            return []
-        cold_path = self.library_path.with_name(self.library_path.stem + "_cold.jsonl")
-        with cold_path.open("a", encoding="utf-8") as handle:
-            for row in evicted:
-                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-        # 重写整库（保留探索额度的那些）
-        self.library_path.write_text(
-            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in kept), encoding="utf-8"
-        )
-        report.funnel["library_evicted"] = len(evicted)
+        if evicted:
+            cold_path = self.library_path.with_name(self.library_path.stem + "_cold.jsonl")
+            with cold_path.open("a", encoding="utf-8") as handle:
+                for row in evicted:
+                    handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            report.funnel["library_evicted"] = len(evicted)
+        write_library(self.library_path, kept)
+        report.reuse = reuse_table(kept)
         return evicted
 
     # ---- ⑨ 物化 + 入库 ----
@@ -552,7 +604,10 @@ class RoundRunner:
                  "source_corpus": self.config.source_corpus,
                  "constants": c.get("constants", []), "delta_len": None,
                  "proof_steps": c.get("proof_steps"),
-                 "added_round": self.config.round_index}
+                 "added_round": self.config.round_index,
+                 # 新引理按构造 reuse=0（还没有目标引用过它），这是**真实的测量值**，
+                 # 不是缺省值；它连同曝光计数一起落盘，供保留/淘汰判断。
+                 "reuse": 0, "reuse_targets": [], "exposures": 0}
                 for c in selected
             ],
         )
@@ -569,6 +624,9 @@ class RoundRunner:
         # 物化整库（Materialize.emit 是重写整个文件），并编译出 olean 供 `import` 使用
         full = [
             {"stmt": row["stmt"], "proof": row["proof"], "verified": True,
+             # 名字来自库行（`library.add_many` 按语句内容生成），不再按数组下标猜：
+             # 淘汰会从库中间删条目，按下标命名会让剩下的引理整体改名。
+             "name": str(row.get("name") or name_for(str(row["stmt"]))),
              "source": row.get("source", "library")}
             for row in load_library(self.library_path)
         ]
@@ -600,16 +658,22 @@ class RoundRunner:
 
         `lake build SgsLean` 不会编译这个模块——phase22 的假结论就是从这来的。
         返回 `{"ok", "jobs", "tail"}`，失败时把日志尾巴带回去，不吞错。
+
+        工作目录取 **lake 工程根**（`sgslean/`），不取"物化文件的祖父目录"：
+        后者在 `--generated` 指向别处时会静默指向错误的目录，`lake build` 直接失败
+        （或更糟：编译到另一个工程里）。
         """
         import os
         import re
         import subprocess
 
+        from sgsr.verification.client import SGSLEAN
+
         lake = os.environ.get("LAKE", "lake")
         try:
             proc = subprocess.run(
                 [lake, "build", "SgsLean.GeneratedLibrary"],
-                cwd=str(self.generated_path.parents[1]),
+                cwd=str(SGSLEAN),
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=timeout_s,
             )
@@ -634,14 +698,28 @@ class RoundRunner:
         # 读库即复核来源（硬约束 1 的第二道防线）；有 D/T 来源就直接停，不继续算。
         assert_clean_sources(self.library_path)
         report.library_before = [row["stmt"] for row in library]
-        lib_for_prompt = [
-            {"name": f"sgs_lem_{i + 1}", "stmt": row["stmt"]} for i, row in enumerate(library)
-        ][: cfg.seeds_limit]
+        # 提示词集合由**选择层**给出（token 预算下的密度贪心 + 探索期补位），
+        # 不是 `library[:seeds_limit]`：按位置截断会让库尾部的引理永远没有出场机会，
+        # 于是它们的 reuse 永远是 0，再被"reuse=0 且超龄"淘汰——淘汰的是没抽到签的人。
+        # 库为空时它就是空列表（第一轮天然是"无库臂"）。
+        lib_for_prompt = self.prompt_set(library, report) if library else []
+        for row in lib_for_prompt:
+            row.setdefault("name", name_for(str(row.get("stmt", ""))))
 
         self.log(f"[round {cfg.round_index}] 目标 {len(targets)} 条；库 {len(library)} 条")
 
         # ① 采轨迹（"无库"臂天然来自第一轮；之后各轮的提示词里已有上一轮的库）
-        traces, attempts = self.collect(targets, lib_for_prompt)
+        traces, attempts, solve_errors = self.collect(targets, lib_for_prompt)
+        if solve_errors:
+            # 装置故障要单列：把它混进"没解出"会让解出率凭空变低。
+            report.reasons["backend_error:solve"] = len(solve_errors)
+            report.funnel["backend_errors_solve"] = len(solve_errors)
+            self.log(f"[round {cfg.round_index}] 求解端点报错 {len(solve_errors)} 次"
+                     f"（例如 {solve_errors[0]['error'][:120]}）")
+        # ①′ 复用测量：l 被多少个**不同目标**的**通过验收的**证明实际引用
+        cited = self.measure_reuse(traces)
+        report.funnel["cited_lemmas"] = len(cited)
+        report.funnel["cited_targets"] = sum(len(v) for v in cited.values())
         # trace 作业内部已经跑过 `Verify.verify`，`TraceResult.verified` 就是结论——
         # 不要再单独起一批 verify（那会多付一次 Mathlib 导入）。
         # **`target` 才是数学目标**：`id` 是候选作业标识，把 id 当目标会让"已解出的目标"
@@ -669,8 +747,23 @@ class RoundRunner:
         demand_sigs = [e["sig"] for e in demand_report.get("top_demand", [])][: cfg.demand_limit]
 
         # ③ 猜想（条件化在未解目标 + 需求 + 库范例）
-        unsolved = [t for t in targets if t["id"] not in solved] or targets
-        candidates = self.conjecture(unsolved, demand_sigs, lib_for_prompt)
+        unsolved = [t for t in targets if t["id"] not in solved]
+        if not unsolved:
+            # 全部解出时**不再出题**：以前这里 `or targets` 会把已解出的目标再送一遍，
+            # 白花一次调用，还让"覆盖增量"的语义变模糊。
+            candidates, conjecture_errors = [], []
+            report.reasons["conjecture:all_solved"] = 1
+        else:
+            # 条件化信号可能为空（第一轮没有需求、库里也没有引理）：那时出题器
+            # 只剩"未解目标"这一个输入——这正是 SGS 的结构（g 条件化在未解目标上），
+            # 照常出题，把"没有需求"如实记进报告即可。
+            if not demand_sigs:
+                report.reasons["conjecture:no_demand"] = 1
+            candidates, conjecture_errors = self.conjecture(unsolved, demand_sigs, lib_for_prompt)
+        if conjecture_errors:
+            report.reasons["backend_error:conjecture"] = len(conjecture_errors)
+            report.funnel["backend_errors_conjecture"] = len(conjecture_errors)
+            self.log(f"[round {cfg.round_index}] 出题端点报错 {len(conjecture_errors)} 次")
 
         # ④ 判据层
         survivors = self.screen(candidates, library, report)
@@ -678,13 +771,17 @@ class RoundRunner:
         # ⑤⑥⑦ 求解 / 验证 / 软分
         verified = self.prove_verify_measure(survivors, report)
 
-        # ⑧⑨ 淘汰 + 选择 + 物化入库（记忆注入在下一轮自动生效）
-        evicted = self.evict(report)
+        # ⑧ 复用记账 + 曝光计数 + 淘汰（写回库），再按探索额度准入
+        prompt_names = {str(row.get("name") or name_for(str(row.get("stmt", ""))))
+                        for row in lib_for_prompt}
+        evicted = self.update_library(report, cited, prompt_names)
         if evicted:
-            library = load_library(self.library_path)
-            self.log(f"[round {cfg.round_index}] 冷存 {len(evicted)} 条僵尸引理（reuse=0）")
-        selected, gains, selection = self.select(verified, library, traces)
-        report.selection = selection
+            self.log(f"[round {cfg.round_index}] 冷存 {len(evicted)} 条僵尸引理"
+                     f"（reuse=0 且被给过机会）")
+        library = load_library(self.library_path)
+        selected, admission = self.select(verified, library)
+        report.admission = admission
+        # ⑨ 物化 + 入库
         written = self.commit(selected, report)
         report.selected = [{"stmt": c["stmt"], "target": c["target"],
                             "proof_steps": c.get("proof_steps")} for c in selected]
@@ -692,8 +789,8 @@ class RoundRunner:
         report.library_after = [row["stmt"] for row in library_after]
         report.funnel["library_written"] = written
         report.funnel["library_size"] = len(library_after)
-        report.funnel["greedy_gains"] = gains
         report.funnel["lean_batches"] = self._batches
+        report.funnel["reuse_measured"] = {k: sorted(v) for k, v in sorted(cited.items())}
         report.timing_s = time.perf_counter() - started
         self.log(f"[round {cfg.round_index}] 入库 {written} 条 → 库 {len(library_after)} 条；"
                  f"漏斗 {report.funnel}")
@@ -724,6 +821,9 @@ def summarize(reports: list[RoundReport]) -> dict:
                 "passed_hard_gates": r.funnel.get("passed_hard_gates", 0),
                 "verified": r.funnel.get("verified", 0),
                 "library_written": r.funnel.get("library_written", 0),
+                "reusable": (r.reuse.get("buckets", {}) or {}).get("reusable", 0),
+                "cited_targets": r.funnel.get("cited_targets", 0),
+                "prompt_size": r.funnel.get("prompt_size", 0),
                 "timing_s": round(r.timing_s, 1),
             }
             for r in reports

@@ -58,7 +58,9 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
+from sgsr.utils.http_client import soft_post_json  # noqa: E402
+from sgsr.pipeline.library import name_for  # noqa: E402
+from sgsr.verification.client import LeanServer, budget_for_jobs, preflight_imports  # noqa: E402
 
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
@@ -69,19 +71,8 @@ BASE_IMPORTS = "Mathlib"
 
 
 def http_post(url: str, payload: dict, timeout: float = 300.0) -> dict:
-    import urllib.error
-    import urllib.request
-
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return {"error": {"code": f"http_{exc.code}",
-                          "message": exc.read().decode("utf-8", "replace")[:300]}}
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"error": {"code": "network", "message": str(exc)}}
+    """软失败 POST（HTTP 实现统一在 `sgsr/models/http.py`）。"""
+    return soft_post_json(url, payload, timeout=timeout)
 
 
 def load_library(path: Path) -> list[dict]:
@@ -92,7 +83,13 @@ def load_library(path: Path) -> list[dict]:
     if not path.exists():
         return []
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    return [{"name": f"sgs_lem_{i + 1}", "stmt": row["stmt"]} for i, row in enumerate(rows)]
+    # 名字**读库行里的 `name`**（由 `library.add_many` 按语句内容生成）。
+    # 按下标推名字会在"库被淘汰过"之后与 Lean 环境里的常量对不上，
+    # 于是提示词给的名字不存在、模型一引用就 unknown identifier——表现成"库没用"。
+    return [
+        {"name": str(row.get("name") or name_for(str(row["stmt"]))), "stmt": row["stmt"]}
+        for row in rows
+    ]
 
 
 def load_workload(args, limit: int) -> list[dict]:
@@ -130,14 +127,23 @@ def load_workload(args, limit: int) -> list[dict]:
     return [{"id": tid, "statement": entry["stmt"]} for tid, entry in picked][:limit]
 
 
-def run_arm(targets: list[dict], library: list[dict], args, import_spec: str) -> dict:
-    """跑一个臂：/solve → 验证。返回 {target_id: {provable, verdicts}}。"""
+def run_arm(targets: list[dict], library: list[dict], args, import_spec: str
+            ) -> tuple[dict, list[dict]]:
+    """跑一个臂：/solve → 验证。返回 `({target_id: {...}}, 端点故障列表)`。"""
     attempts: dict[str, list[str]] = {}
+    backend_errors: list[dict] = []
     for target in targets:
         payload = {"statement": target["statement"], "num_samples": args.k}
         if library:
             payload["library"] = library
         response = http_post(args.endpoint, payload)
+        if isinstance(response.get("error"), dict):
+            # 端点故障 ≠ "模型没写出证明"。旧实现把两者都变成"0 篇候选"，
+            # 于是两臂都可能是 0，而报告说"增益 0"——那是装置结论，不是方法结论。
+            backend_errors.append({"target": target["id"], "error": response["error"]})
+            attempts[target["id"]] = []
+            print(f"       {target['id']:30s} \u26a0 端点报错：{response['error'].get('code')}")
+            continue
         proofs = [p.get("proof", "") for p in (response.get("proofs") or [])]
         attempts[target["id"]] = [p for p in proofs if p.strip()]
         print(f"       {target['id']:30s} 候选证明 {len(attempts[target['id']])} 篇")
@@ -159,8 +165,19 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str) ->
         tid = target["id"]
         verdicts = []
         for i, _ in enumerate(attempts[tid]):
-            result = (responses.get(f"{tid}:{i}") or {}).get("result") or {}
-            verdicts.append({"index": i, "ok": result.get("ok") is True, "reason": result.get("reason")})
+            entry = responses.get(f"{tid}:{i}")
+            if entry is None:
+                # 响应缺失是**协议错误**，必须能被下游的 fail_pipeline 判据看到；
+                # 旧实现把原因写成 None，于是那两个检测字符串永远匹配不到（死代码）。
+                verdicts.append({"index": i, "ok": False, "reason": "missing_response"})
+                continue
+            if entry.get("error"):
+                verdicts.append({"index": i, "ok": False,
+                                 "reason": f"protocol_error:{entry['error'].get('code')}"})
+                continue
+            result = entry.get("result") or {}
+            verdicts.append({"index": i, "ok": result.get("ok") is True,
+                             "reason": result.get("reason")})
         ok_count = sum(1 for v in verdicts if v["ok"])
         # **关键诊断**：模型到底有没有引用库里的引理？
         # 如果处理臂里几乎没人写 `sgs_lem_*`，那这个臂实际是"提示词多了一段文字"，
@@ -175,7 +192,7 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str) ->
             "verdicts": verdicts,
             "proofs": attempts[tid],
         }
-    return out
+    return out, backend_errors
 
 
 def main() -> int:
@@ -199,29 +216,30 @@ def main() -> int:
         return 1
     print(f"[g3r] 目标 {len(targets)} 条；库 {len(library)} 条；k={args.k}；端点 {args.endpoint}")
     if not library:
-        print("[g3r] 库为空——那两臂就没有差别，先跑 tests\\build_library.py")
+        print("[g3r] 库为空——那两臂就没有差别，先跑 scripts\\build_library.py"
+              "（或 scripts\\run_round.py）把库建起来")
 
     # 预检：处理臂的 import 必须真的能用。
     # phase22 踩过一次：`lake build SgsLean` 不会编 `SgsLean.GeneratedLibrary`（olea 不存在），
     # 于是处理臂的片段整批崩掉、所有判定为空——却表现为"给库后全部退化"的假结论。
     # 这里用一条最便宜的作业先验证环境，不通就直接退出，不让假数据流进报告。
-    with LeanServer(imports=LIBRARY_IMPORTS, heartbeats=budget_for_jobs(1),
-                    stderr_path=RESULTS / "g3_real_stderr.log") as server:
-        preflight = server.batch([{"id": "pf", "cmd": "check", "stmt": "True"}])
-    pf = (preflight.get("pf") or {})
-    if pf.get("ok") is not True or (pf.get("result") or {}).get("ok") is not True:
+    preflight_ok, preflight_detail = preflight_imports(
+        LIBRARY_IMPORTS, stderr_path=RESULTS / "g3_real_stderr.log"
+    )
+    if not preflight_ok:
         print(f"[g3r] 预检失败：处理臂环境 `import {LIBRARY_IMPORTS}` 不可用。")
-        print(f"       响应：{json.dumps(pf, ensure_ascii=False)[:300]}")
+        print(f"       详情：{preflight_detail}")
         print("       先跑：cd sgslean && lake build SgsLean.GeneratedLibrary")
         return 1
     print(f"[g3r] 预检通过（{LIBRARY_IMPORTS} 可用）")
 
     started = time.perf_counter()
     print("[g3r] ==== 基线臂（不给库） ====")
-    baseline = run_arm(targets, [], args, BASE_IMPORTS)
+    baseline, baseline_errors = run_arm(targets, [], args, BASE_IMPORTS)
     print("[g3r] ==== 处理臂（给库 + 环境 import 库） ====")
-    treatment = run_arm(targets, library, args, LIBRARY_IMPORTS)
+    treatment, treatment_errors = run_arm(targets, library, args, LIBRARY_IMPORTS)
     elapsed = time.perf_counter() - started
+    backend_errors = len(baseline_errors) + len(treatment_errors)
 
     base_provable = [tid for tid, r in baseline.items() if r["provable"]]
     treat_provable = [tid for tid, r in treatment.items() if r["provable"]]
@@ -244,7 +262,10 @@ def main() -> int:
         if str(verdict_row.get("reason") or "").startswith("protocol_error")
         or verdict_row.get("reason") in ("missing_response", "missing_reason")
     )
-    if protocol_errors > 0 and not base_provable and not treat_provable:
+    if backend_errors > 0 and not base_provable and not treat_provable:
+        # 端点挂了导致两臂都空 → 装置问题，不是"库没用"。
+        verdict = "fail_pipeline"
+    elif protocol_errors > 0 and not base_provable and not treat_provable:
         verdict = "fail_pipeline"
     elif graded_gain > 0:
         verdict = "pass"
@@ -279,8 +300,11 @@ def main() -> int:
         "workload": args.select,
         "verdict": verdict,
         "protocol_errors": protocol_errors,
+        "backend_errors": backend_errors,
+        "backend_error_examples": (baseline_errors + treatment_errors)[:3],
         "criterion": ("评分制增益 > 0 → pass；= 0 → no_gain；< 0 → negative；"
-                      "两臂皆 0 → no_solvable_targets；验证层大面积协议错误 → fail_pipeline"),
+                      "两臂皆 0 → no_solvable_targets；"
+                      "端点故障或验证层协议错误导致两臂皆空 → fail_pipeline"),
         "timing": {"total_s": round(elapsed, 1)},
         "per_target": {
             tid: {

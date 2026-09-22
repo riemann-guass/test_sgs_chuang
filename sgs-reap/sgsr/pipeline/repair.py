@@ -17,15 +17,13 @@ repair 把 Lean 的诊断变成提示词的一部分，才是"从失败里学到
 
 from __future__ import annotations
 
-import json
-import urllib.error
-import urllib.request
-
+from sgsr.utils.http_client import BackendUnavailable, post_json
 from sgsr.models import prompts
 
 
-class RepairBackendError(RuntimeError):
-    """后端不可用（503 / 超时 / 网络）。调用方必须记 `backend_error`，不能当成"模型证不出"。"""
+#: 后端不可用。以前这里另立了一个 `RepairBackendError`，结果调用方得同时 catch 两个
+#: 异常类；现在与在线主线共用 `BackendUnavailable`（`sgsr/models/http.py`）。
+RepairBackendError = BackendUnavailable
 
 
 def solve_with_prompt(
@@ -51,21 +49,7 @@ def solve_with_prompt(
         # 我们走 `prompt` 直接送拼好的提示词，但仍把原命题带上：同一个语句文本
         # 在两处出现，让"模型看到的命题"与"内核验证的命题"逐字一致。
         payload["statement"] = stmt_hint
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        endpoint, data=body, headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:300]
-        raise RepairBackendError(f"HTTP {exc.code}: {detail}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RepairBackendError(f"network: {exc}") from exc
-    error = data.get("error") if isinstance(data, dict) else None
-    if isinstance(error, dict):
-        raise RepairBackendError(f"{error.get('code', 'error')}: {error.get('message', '')}")
+    data = post_json(endpoint, payload, timeout=timeout)
     proofs = [
         str(item.get("proof", "")).strip()
         for item in (data.get("proofs") or [])

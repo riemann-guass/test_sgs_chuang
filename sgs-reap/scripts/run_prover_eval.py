@@ -4,11 +4,18 @@
 
 必须同时报出四个量：
 
-1. **目标级 pass@k**（主指标）：一道题只要有 ≥1 篇候选过内核即算解出；
-2. **CostPerSolved** = 总 token / 解出题数；
+1. **目标级 pass@k**（主指标）：一道题只要有 ≥1 篇候选过内核即算解出。
+   **三个口径一起报**，不混：`pass_at_k`（含兜底与 repair）、`pass_at_k_first_round`
+   （只认首轮 solve/cheap）、`pass_at_k_model_only`（不含兜底）。只报一个数会被
+   读者当成"k 篇独立采样的通过率"，而实际口径最多是 3×k 篇候选。
+2. **CostPerSolved** = 总 token / 解出题数（计费口径 = prompt + completion）；
 3. **兜底命中率**：零模型调用那部分单独摘出来（它不花 token，
    混进成本会让 CostPerSolved 虚假地低）；
 4. **按领域的通过率分桶**（数据集有 `domain` 字段时才分，否则按来源/数据集名分）。
+
+**分母**：门检拒绝（输入问题）与后端故障（装置问题）都从分母里剔除，单列成
+`excluded_gate_rejected` / `excluded_backend_errors`。把它们算成"没解出"会让
+一次 503 直接压低 pass@k。
 
 ## 数据角色（`--set` 的取值）
 
@@ -45,7 +52,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sgsr.pipeline.prover import Budget, Prover  # noqa: E402
-from sgsr.pipeline.prover import git_commit, library_hash  # noqa: E402
+from sgsr.pipeline.prover import git_commit, library_hash, usage_total  # noqa: E402
+from sgsr.verification.client import preflight_imports  # noqa: E402
 
 DATA = ROOT / "data"
 REGISTERED = {
@@ -194,7 +202,11 @@ def main(argv: list[str] | None = None) -> int:
         library_path = Path(args.library)
     elif args.library is None and DEFAULT_LIBRARY.exists():
         library_path = DEFAULT_LIBRARY
-    has_library = bool(library_path and library_path.exists())
+    # **空文件不算有库**：`run_round` 跑完会留下一个 0 字节的库文件，
+    # 若只判 `exists()`，就会给无库臂挂上 `import SgsLean.GeneratedLibrary`，
+    # 于是"基线臂"其实动了一个额外的模块（口径不干净）。
+    has_library = bool(library_path and library_path.exists()
+                       and library_path.read_text(encoding="utf-8").strip())
     imports = args.imports or ("Mathlib,SgsLean.GeneratedLibrary" if has_library else "Mathlib")
     if args.no_cheap:
         import sgsr.pipeline.prover as prover_module  # noqa: PLC0415
@@ -206,6 +218,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[eval] 集合 {label}：{len(rows)} 条；k={args.k}；库 {len(prover.library)} 条；"
           f"imports={imports}；cheap={'off' if args.no_cheap else 'on'}；"
           f"repair={'off' if args.no_repair else 2}")
+
+    # ── 环境预检（有库时必须）──
+    # 库在 Python 里非空、但 Lean 环境里没有对应的 olean 时，处理臂的片段会整批崩，
+    # 表现成"给库之后更差"。这条预检就是为了不让这种假结论进报告。
+    preflight_ok, preflight_detail = preflight_imports(
+        imports, stderr_path=ROOT / "experiments" / "results" / "prover_eval_stderr.log"
+    )
+    if not preflight_ok:
+        raise SystemExit(
+            f"[eval] 环境预检失败（imports={imports}）：{preflight_detail}\n"
+            "        有库时请先 `cd sgslean && lake build SgsLean.GeneratedLibrary`，"
+            "或去掉 --library 跑无库臂。"
+        )
+    print(f"[eval] 环境预检通过（imports={imports}）")
 
     started = time.perf_counter()
     records: list[dict] = []
@@ -220,17 +246,36 @@ def main(argv: list[str] | None = None) -> int:
                                                   ('prompt_tokens', 'completion_tokens',
                                                    'reasoning_tokens'))}")
 
-    solved = [r for r in records if r["solved"]]
-    tokens = {
-        key: sum(int(r["usage"].get(key, 0) or 0) for r in records)
-        for key in ("prompt_tokens", "completion_tokens", "reasoning_tokens", "model_calls")
-    }
-    total_tokens = tokens["prompt_tokens"] + tokens["completion_tokens"] + tokens["reasoning_tokens"]
-    cheap = [r for r in solved if r["path"] == "cheap"]
+    # ── 分口径统计（规格 8.2 + 审计"不要把装置故障算成模型能力"）──
+    # 输入问题（门检拒绝）与后端故障都**不是**这道题"没解出"，必须从分母里剔除。
+    def first_round_ok(record: dict) -> bool:
+        return any(a.get("ok") is True and int(a.get("round") or 0) == 0
+                   and a.get("source") in ("cheap", "solve")
+                   for a in record["attempts"])
+
+    excluded_gate = [r for r in records if r["path"] == "gate_rejected"]
     backend_errors = [
         r for r in records
         if any(a.get("reason") == "backend_error" for a in r["attempts"])
     ]
+    for r in excluded_gate:
+        r["excluded"] = "gate_rejected"        # 输入/命题本身的问题，不进分母
+    for r in backend_errors:
+        r.setdefault("excluded", "backend_error")   # 装置故障，不进分母
+    evaluable = [r for r in records if not r.get("excluded")]
+    solved = [r for r in records if r["solved"]]
+    solved_evaluable = [r for r in evaluable if r["solved"]]
+    model_only = [r for r in solved_evaluable if r["path"] != "cheap"]
+    first_round = [r for r in solved_evaluable if first_round_ok(r)]
+    tokens = {
+        key: sum(int(r["usage"].get(key, 0) or 0) for r in records)
+        for key in ("prompt_tokens", "completion_tokens", "reasoning_tokens",
+                    "model_calls", "cache_hits")
+    }
+    # 计费口径 = prompt + completion；`reasoning_tokens` 是 completion 的子集，
+    # 三类相加会把推理 token 算两遍（thinking 打开时虚增 30%–50%）。
+    total_tokens = usage_total(tokens)
+    cheap = [r for r in solved if r["path"] == "cheap"]
     by_domain: dict[str, dict] = collections.defaultdict(lambda: {"n": 0, "solved": 0})
     for record in records:
         bucket = by_domain[str(record["domain"])]
@@ -261,15 +306,24 @@ def main(argv: list[str] | None = None) -> int:
             "repair_rounds": 0 if args.no_repair else budget.repair_rounds,
         },
         "targets": len(records),
-        "pass_at_k": len(solved) / len(records),
+        # 主指标：在**可评测**目标上（剔除输入问题与装置故障）。这是对外的 pass@k。
+        "pass_at_k": (len(solved_evaluable) / len(evaluable)) if evaluable else None,
+        # 同一条命令里的另外两个口径，必须一起报，否则"pass@k 含 repair 与兜底"
+        # 这件事会被读者误当成 k 篇独立采样的通过率。
+        "pass_at_k_first_round": (len(first_round) / len(evaluable)) if evaluable else None,
+        "pass_at_k_model_only": (len(model_only) / len(evaluable)) if evaluable else None,
+        "evaluable": len(evaluable),
+        "excluded_gate_rejected": len(excluded_gate),
+        "excluded_backend_errors": len(backend_errors),
+        "solved_any": len(solved),
         "solved": len(solved),
         "cheap_hits": len(cheap),
-        "cheap_hit_rate": len(cheap) / len(records),
-        "model_solved": len(solved) - len(cheap),
+        "cheap_hit_rate": (len(cheap) / len(evaluable)) if evaluable else None,
+        "model_solved": len(model_only),
         "backend_errors": len(backend_errors),
         "path_breakdown": dict(by_path),
         "tokens": {**tokens, "total": total_tokens},
-        "cost_per_solved": (total_tokens / len(solved)) if solved else None,
+        "cost_per_solved": (total_tokens / len(solved_evaluable)) if solved_evaluable else None,
         "by_domain": {
             domain: {**bucket, "rate": bucket["solved"] / bucket["n"]}
             for domain, bucket in sorted(by_domain.items())
@@ -295,8 +349,16 @@ def main(argv: list[str] | None = None) -> int:
         })
         print(f"[eval] 已把这次 T 运行写进台账 {TEST_LEDGER}（共 "
               f"{len(read_test_ledger())} 条）")
-    print(f"[eval] pass@{args.k} = {report['pass_at_k']:.3f}（{len(solved)}/{len(records)}）；"
-          f"兜底命中 {len(cheap)}；总 token {total_tokens}；"
+    def pct(value) -> str:
+        return "n/a" if value is None else f"{value:.3f}"
+
+    print(f"[eval] 可评测 {len(evaluable)}/{len(records)}"
+          f"（门检拒绝 {len(excluded_gate)}、装置故障 {len(backend_errors)} 已剔除）")
+    print(f"[eval] pass@{args.k} = {pct(report['pass_at_k'])}"
+          f"（{len(solved_evaluable)}/{len(evaluable)}）"
+          f"；首轮 {pct(report['pass_at_k_first_round'])}"
+          f"；不含兜底 {pct(report['pass_at_k_model_only'])}")
+    print(f"[eval] 兜底命中 {len(cheap)}；总 token {total_tokens}（计费口径 = prompt+completion）；"
           f"CostPerSolved {report['cost_per_solved']}")
     print(f"[eval] 报告写入 {out_path}")
     return 0

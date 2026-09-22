@@ -36,22 +36,22 @@ import argparse
 import collections
 import json
 import os
-import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[1]
-SGSLEAN = ROOT / "sgslean"
+sys.path.insert(0, str(ROOT))
+
+from sgsr.utils.http_client import soft_post_json  # noqa: E402
+from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
+
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
 RUNS = ROOT / "experiments" / "runs"
-LAKE = os.environ.get("LAKE", "lake")
 DEFAULT_ENDPOINT = os.environ.get("G1_ENDPOINT", "http://127.0.0.1:8765/solve")
 
 # 与假服务同款的两条诱饵（判负），保证 dry-run 也有非平凡失败面
@@ -59,14 +59,14 @@ DECOYS = ["exact ?_", "sorry"]
 
 
 def http_post(url: str, payload: dict, timeout: float = 180.0) -> dict:
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return soft_post_json(url, payload, timeout=timeout)
 
 
 def solve_http(endpoint: str, statement: str, k: int) -> tuple[list[str], dict]:
     payload = http_post(endpoint, {"statement": statement, "num_samples": k})
+    if isinstance(payload.get("error"), dict):
+        # 端点故障 ≠ "模型没写出证明"：以前裸 urlopen 会直接抛异常把整轮打断/或吞成空。
+        return [], {**payload, "backend_error": payload["error"]}
     proofs = [p["proof"] for p in payload.get("proofs", [])]
     return proofs, payload.get("meta", {})
 
@@ -77,24 +77,16 @@ def solve_dry(lemma: dict, k: int) -> tuple[list[str], dict]:
 
 
 def run_lean_batch(requests: list[dict], timeout: float = 3600.0) -> tuple[dict[str, dict], int]:
-    lines = [json.dumps(r, ensure_ascii=False) for r in requests]
-    lines.append(json.dumps({"id": "__flush__", "cmd": "flush"}))
-    proc = subprocess.run(
-        [LAKE, "exe", "sgslean-server"],
-        cwd=str(SGSLEAN),
-        input=("\n".join(lines) + "\n").encode("utf-8"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-    )
-    responses: dict[str, dict] = {}
-    frontend_ms = 0
-    for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
-        item = json.loads(line)  # 协议纯度
-        rid = str(item.get("id"))
-        if rid == "__flush__":
-            frontend_ms = (item.get("result") or {}).get("frontend_ms", 0)
-        responses[rid] = item
+    """一批 `verify` 作业 → `{id: 响应}`。
+
+    走 `sgsr/verification/client.py` 的常驻客户端（每实例独立工作目录、心跳按单条作业给），
+    不再自己 `subprocess.run` 拼协议——那是同一件事的第 N 份实现，语义迟早会漂开。
+    """
+    with LeanServer(imports=os.environ.get("SGSLEAN_IMPORTS", "Mathlib"),
+                    heartbeats=budget_for_jobs(len(requests)),
+                    stderr_path=RESULTS / "g1_stderr.log") as server:
+        responses = server.batch(requests, timeout=timeout)
+        frontend_ms = server.frontend_ms_total
     return responses, frontend_ms
 
 

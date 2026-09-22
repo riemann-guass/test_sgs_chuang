@@ -12,14 +12,14 @@
 | 脚本 | 作用 | 状态 |
 |---|---|---|
 | `prove.py` | **单题入口**：一条命题进，一篇过内核终检的证明出 | ✅ P1（phase25） |
-| `run_prover_eval.py` | 在一个数据集上批量评测，报 pass@k 与成本指标 | ✅ P1（phase25）；真模型数字待跑 |
+| `run_prover_eval.py` | 在一个数据集上批量评测，报**三个口径**的 pass@k 与成本指标（首轮 / 含 repair / 不含兜底），带环境预检 | ✅ phase27 |
 
 ### 离线建库（库的建立与管理）
 
 | 脚本 | 作用 | 状态 |
 |---|---|---|
 | `run_round.py` | 闭环主入口（多轮建库）。**只接受课程集 C**，有硬守卫 | ✅ |
-| `build_library.py` | 单轮漏斗：候选 → 硬门 → 求解 → 验证 → 物化 → 入库 | ✅ |
+| `build_library.py` | 单轮漏斗：候选 → 硬门 → 求解 → 验证 → 物化 → 入库（来源三件套强制；写不进库时判 `fail_not_written`） | ✅ phase27 |
 | `run_conjecture.py` | 出题者下游：需求 → 引理候选 → 门检（`--no-demand` 是对照） | ✅ |
 | `run_gate_g2.py` | 需求挖掘的检定（分层统计 + 四条分桶） | ✅ |
 
@@ -28,7 +28,7 @@
 | 脚本 | 作用 | 状态 |
 |---|---|---|
 | `run_gate_g3_real.py` | **两臂测量**：有库／无库对照，含环境预检与引用计数。复用判据的测量基础 | ✅ |
-| `run_closure_tests.py` | **闭环核心协议测试**（46 条断言）：目标身份、`ok/verified` 字段、库来源守卫、角色守卫、`.lean` 解析、选择与淘汰、物化往返 | ✅ phase26 |
+| `run_closure_tests.py` | **闭环核心协议测试**（60 条断言）：目标身份、`ok/verified` 字段、库来源守卫、角色守卫、`.lean` 解析、**准入/探索额度**、**复用测量与落盘**、选择与淘汰、物化往返 | ✅ phase27 |
 | `run_gate_g1.py` | 求解器能力检定（solve_rate 分布）；P2 之后由难度标定吸收 | ✅ |
 | `diagnose_exceptions.py` | 判定预算诊断：把 `exception` 样本用放大预算重测 | ✅ |
 | `run_server_smoke.py` | Lean 服务协议冒烟（`ping`/`check`/`verify`/`trace`/预算） | ✅ |
@@ -77,3 +77,14 @@ $env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 见下：直接跑脚本�
 * **判定准则写在脚本里、跑之前定死**（每个脚本的文件头都有），避免事后解释。
 * 报告一律带 `mode` 与规模后缀，防止小规模重跑覆盖正式报告。
 * Lean 侧测试在 `sgslean/SgsLean/Test/` 与 `reap-fork/Reap/Test/`，用 `lake build` 跑。
+
+## 两个"只许有一份"的公共入口
+
+审计最常抓到的形态是"同一件事有 N 份实现，语义还不一样"。现在收敛成两处：
+
+| 公共入口 | 唯一实现 | 谁在用 |
+|---|---|---|
+| `sgsr/models/http.py` | 与本地服务通信的 HTTP 客户端（`post_json` 抛错 / `soft_post_json` 收错） | prover · repair · conjecture · runner · build_library · run_gate_g1/g2/g3 · run_solve_mock |
+| `sgsr/verification/client.py` | `sgslean-server` 的常驻客户端（批处理 + 环境预检 `preflight_imports`） | prove · run_prover_eval · run_round · closure_tests · build_library · run_gate_g3_real · run_server_smoke |
+
+新增脚本请直接复用这两个入口；不要再写第 N 份 `http_post` / `subprocess.run([lake, exe, ...])`。
