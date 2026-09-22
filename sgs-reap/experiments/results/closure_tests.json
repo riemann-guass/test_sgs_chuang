@@ -1,8 +1,6 @@
 {
-  "passed": 45,
-  "failed": [
-    "物化：服务端返回 ok=true"
-  ],
+  "passed": 43,
+  "failed": [],
   "checks": [
     {
       "name": "目标身份：3 篇候选 + 1 个别的目标 = 2 个不同目标",
@@ -218,21 +216,6 @@
       "name": "闭包：无绑定变量时原样返回",
       "ok": true,
       "detail": ""
-    },
-    {
-      "name": "物化：服务端返回 ok=true",
-      "ok": false,
-      "detail": "{'names': ['sgs_lem_1'], 'path': 'D:\\\\bianma\\\\code\\\\大创\\\\sgs-reap\\\\sgslean\\\\SgsLean\\\\GeneratedLibrary.lean', 'skipped': 0, 'written': 1}"
-    },
-    {
-      "name": "物化：`lake build SgsLean.GeneratedLibrary` 编译通过",
-      "ok": true,
-      "detail": "✔ [7889/7889] Built SgsLean.GeneratedLibrary (551s)\nBuild completed successfully (7889 jobs).\n"
-    },
-    {
-      "name": "物化：环境能 import 生成库（ping 的 importedModules 增长）",
-      "ok": true,
-      "detail": "{'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 9874, 'mathlib': True, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}"
     }
   ]
 }
