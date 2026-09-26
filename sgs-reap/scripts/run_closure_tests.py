@@ -510,6 +510,43 @@ def test_prompt_blocks() -> None:
           "LIBRARY EXCERPTS" in with_seeds and "LIBRARY EXCERPTS" not in no_demand)
 
 
+def test_tier_classification() -> None:
+    """难度分档（吸收自 `calibrate_difficulty.py` 的那部分）必须能被反向对照抓住。
+
+    分档错了会让 P3 的对照组在"本来就无余量"的题上跑，增益恒为 0 却看不出原因——
+    这正是 phase21 踩过的坑。这里用构造出来的逐题记录把四种类别钉死。
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from run_prover_eval import classify_tier, write_tiers
+
+    def record(path: str, passed_first_round: int, k: int) -> dict:
+        attempts = [{"ok": True, "round": 0, "source": "solve"} for _ in range(passed_first_round)]
+        attempts += [{"ok": False, "round": 0, "source": "solve"} for _ in range(k - passed_first_round)]
+        return {"path": path, "attempts": attempts}
+
+    check("分档：兜底命中 = easy", classify_tier(record("cheap", 0, 4), 4) == "easy")
+    check("分档：首轮 k 篇全过 = easy", classify_tier(record("solve", 4, 4), 4) == "easy")
+    check("分档：首轮 0<通过<k = nearmiss（唯一有增益信号的档）",
+          classify_tier(record("solve", 2, 4), 4) == "nearmiss")
+    check("分档：首轮一篇没过 = hard（哪怕 repair 后来解出来）",
+          classify_tier(record("repair", 0, 4), 4) == "hard")
+    # 反向对照：只看 `solved` 不看首轮通过数，nearmiss 会被误判成 easy。
+    misjudged = {"path": "solve", "solved": True,
+                 "attempts": [{"ok": True, "round": 0, "source": "solve"},
+                              {"ok": False, "round": 0, "source": "solve"}]}
+    check("分档：反向对照——nearmiss 不会被 solved=True 误判成 easy",
+          classify_tier(misjudged, 2) == "nearmiss", f"实际 {classify_tier(misjudged, 2)}")
+
+    tmp = scratch_dir("tier_out")
+    rows = [{"id": "a", "statement": "P1"}, {"id": "b", "statement": "P2"}]
+    records = [{"id": "a", "tier": "nearmiss"}, {"id": "b", "tier": "hard"}]
+    counts = write_tiers(rows, records, tmp, "C")
+    lines = (tmp / "C__nearmiss.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    check("分档落盘：按 tier 分文件写出，且带上 tier 字段",
+          counts == {"hard": 1, "nearmiss": 1} and len(lines) == 1
+          and json.loads(lines[0])["tier"] == "nearmiss", f"{counts} / {lines}")
+
+
 # ─────────────────────── B 组：需要 Lean 的端到端 ───────────────────────
 
 
@@ -614,6 +651,7 @@ def main() -> int:
     test_reuse_persistence(scratch_dir("reuse_persist"))
     test_prover_module_api()
     test_prompt_blocks()
+    test_tier_classification()
 
     if not args.no_lean:
         print("=== B 组：需要 Lean（常驻会话 + 物化 → 编译 → import 往返）===")

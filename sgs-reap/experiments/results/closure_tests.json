@@ -1,5 +1,5 @@
 {
-  "passed": 70,
+  "passed": 72,
   "failed": [],
   "checks": [
     {
@@ -255,22 +255,22 @@
     {
       "name": "复用测量：按不同目标去重（t1 两篇只算 1）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t3', 't1'}, 'sgs_lem_b': {'t3'}}"
+      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
     },
     {
       "name": "复用测量：失败证明里的引用不算复用（t2 不在集合里）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t3', 't1'}, 'sgs_lem_b': {'t3'}}"
+      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
     },
     {
       "name": "复用测量：点号全名按叶子名计数（SgsLean.sgs_lem_a 也算）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t3', 't1'}, 'sgs_lem_b': {'t3'}}"
+      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
     },
     {
       "name": "复用测量：只被 1 个目标引用的引理 reuse=1",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t3', 't1'}, 'sgs_lem_b': {'t3'}}"
+      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
     },
     {
       "name": "复用落盘：reuse 与 reuse_targets 写进库文件（淘汰/检索都靠它）",
@@ -333,24 +333,34 @@
       "detail": ""
     },
     {
-      "name": "常驻会话：同一进程连发 3 批都拿到响应",
+      "name": "分档：兜底命中 = easy",
       "ok": true,
-      "detail": "{'s1': {'id': 's1', 'ok': True, 'result': {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}}} / {'s2': {'id': 's2', 'ok': True, 'result': {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}}} / {'s3': {'id': 's3', 'ok': True, 'result': {'detail': '', 'finalChecked': True, 'gateOk': True, 'goalsLeft': 0, 'ok': True, 'reason': 'ok', 'stmt': '∀ (n : Nat), n + 0 = n'}}}"
+      "detail": ""
     },
     {
-      "name": "常驻会话：批号递增到 3（不是每批新起进程）",
+      "name": "分档：首轮 k 篇全过 = easy",
       "ok": true,
-      "detail": "batch_count=3"
+      "detail": ""
     },
     {
-      "name": "常驻会话：第二批的 `importedModules` 与首批一致（没有重新导入）",
+      "name": "分档：首轮 0<通过<k = nearmiss（唯一有增益信号的档）",
       "ok": true,
-      "detail": "{'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'} vs {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}"
+      "detail": ""
     },
     {
-      "name": "常驻会话：第三批的内核判定仍然判对",
+      "name": "分档：首轮一篇没过 = hard（哪怕 repair 后来解出来）",
       "ok": true,
-      "detail": "{'id': 's3', 'ok': True, 'result': {'detail': '', 'finalChecked': True, 'gateOk': True, 'goalsLeft': 0, 'ok': True, 'reason': 'ok', 'stmt': '∀ (n : Nat), n + 0 = n'}}"
+      "detail": ""
+    },
+    {
+      "name": "分档：反向对照——nearmiss 不会被 solved=True 误判成 easy",
+      "ok": true,
+      "detail": "实际 nearmiss"
+    },
+    {
+      "name": "分档落盘：按 tier 分文件写出，且带上 tier 字段",
+      "ok": true,
+      "detail": "{'hard': 1, 'nearmiss': 1} / ['{\"id\": \"a\", \"statement\": \"P1\", \"tier\": \"nearmiss\"}']"
     }
   ]
 }
