@@ -56,9 +56,35 @@ initialize trivialHeartbeatsRef : IO.Ref Nat ← do
     | none => pure defaultHeartbeats
   IO.mkRef value
 
+/-- 廉价兜底**整条清扫**的墙钟上限（毫秒，默认 60 s），环境变量 `SGSLEAN_CHEAP_BUDGET_MS`。
+
+为什么需要它：每批探针各有一条心跳预算，而心跳只约束 CPU 工作量、真正的上界是
+`reap.timeout`（默认 200 s/条）。在"兜底根本解不了"的题上（near-miss / hard 档），
+22 条探针会**各自烧满**预算：实测单个困难题面的一轮清扫要把每题墙钟推高好几分钟，
+而命中概率接近 0。清扫的意义是"便宜地先试一把"，所以必须有一条**整条清扫**的上限：
+超了就不再往下试，如实记 `exhausted=true`（不是"兜底失败"，是"没试完"）。
+
+默认 60 s 是一次标定（见 `docs/phase28-log.md`）；设成 0 表示不限制。 -/
+def defaultCheapBudgetMs : Nat := 60000
+
+/-- 运行时清扫上限；读不到环境变量则退回 `defaultCheapBudgetMs`。 -/
+initialize cheapBudgetMsRef : IO.Ref Nat ← do
+  let value ← match (← IO.getEnv "SGSLEAN_CHEAP_BUDGET_MS") with
+    | some raw => pure ((raw.trimAscii.toString.toNat?).getD defaultCheapBudgetMs)
+    | none => pure defaultCheapBudgetMs
+  IO.mkRef value
+
 /-- 读取当前批的秒杀预算（泛化到任意可提升 IO 的 monad）。 -/
 def getTrivialHeartbeats {m : Type → Type} [Monad m] [MonadLiftT IO m] : m Nat :=
   liftM (m := IO) trivialHeartbeatsRef.get
+
+/-- 读取当前批的清扫墙钟上限（毫秒；0 = 不限制）。 -/
+def getCheapBudgetMs {m : Type → Type} [Monad m] [MonadLiftT IO m] : m Nat :=
+  liftM (m := IO) cheapBudgetMsRef.get
+
+/-- 单调时钟（纳秒）。 -/
+def nowNanos {m : Type → Type} [Monad m] [MonadLiftT IO m] : m Nat :=
+  liftM (m := IO) IO.monoNanosNow
 
 /-- 依次尝试的 tactic（顺序 = 从便宜到贵）。 -/
 def probes : Array String := #["decide", "simp", "aesop"]
@@ -69,7 +95,11 @@ private def closesGoalWithBudget (ty : Expr) (tactic : String) (budget : Nat) : 
     let obligation ← mkFreshExprSyntheticOpaqueMVar ty
     setGoals [obligation.mvarId!]
     let ctx ← mkProofCheckContext
-    match ← evalTacticStrNoFinalCheck ctx tactic budget with
+    -- **必须包成 `exact by …`**：`evalTacticStrNoFinalCheck` 对未包装的多行脚本
+    -- 只会执行**第一行**（`Measure/Dependency.lean` 早就记过这个坑），于是
+    -- `intros\nring` 里的 `ring` 根本不会跑、探针静默失效——与 `Verify.verify`
+    -- 走同一条包装路径才能保证"探针能闭合 ⟺ 这段脚本能当证明"。
+    match ← evalTacticStrNoFinalCheck ctx (MCTS.wrapProofScriptAsTactic tactic) budget with
     | .error _ => return false
     | .ok _ => return (← getUnsolvedGoals).isEmpty
 
@@ -98,6 +128,19 @@ structure CheapBatch where
   tactics : Array String
   /-- 本批的心跳预算是 `(← getTrivialHeartbeats) * heartbeatScale`。 -/
   heartbeatScale : Nat
+  /-- 本批里**要追加 `intros` 变体**的 tactic 子集（空 = 一个都不加）。
+
+  为什么必须有这一档：我们的输入永远是**闭式命题**（`∀ x, P`，`parse_input` 把绑定变量
+  闭包成 `∀`），而 `ring` / `linarith` / `nlinarith` / `positivity` / `field_simp` / `simp`
+  这些 tactic **不会自己 intro**——目标必须已经是结论本身。
+  实测（Mathlib 模式）：`ring` 单独打在 `∀ (a b : Nat), a * b = b * a` 上是
+  `unclosed_goals`，`intros\nring` 通过；把心跳放大 100 倍也救不了。
+
+  只给"不会自己 intro、且便宜"的 tactic 加：`aesop` 会自己 intro，`rfl` / `decide`
+  在 `∀` 目标上本来就不适用（加了只是白跑）。
+  **脚本必须是平铺的两行**：`intros\n  ring` 会被 Lean 解析成"把 `ring` 当假设名"
+  （实测：目标上下文里出现 `ring : ℕ`），于是整条探针静默失效。 -/
+  introsFor : Array String := #[]
 deriving Repr, Inhabited
 
 /-- 廉价兜底的结果。 -/
@@ -112,6 +155,11 @@ structure CheapResult where
   tried : Array (String × Bool × Nat) := #[]
   /-- 语句 elaborate 失败时的错误原文（此时 `hit=false`，但**不是**"兜底失败"）。 -/
   detail : String := ""
+  /-- 是否因为**整条清扫**超过墙钟上限而提前停下（`hit=false` 且此项为真时，
+      含义是"没试完"，不能当成"兜底解不了"）。 -/
+  exhausted : Bool := false
+  /-- 本轮清扫实际花掉的毫秒数（报告与标定用）。 -/
+  elapsedMs : Nat := 0
 deriving ToJson, Repr, Inhabited
 
 /-- 三批 tactic 清单（规格文档 3.3 节）。
@@ -122,13 +170,21 @@ deriving ToJson, Repr, Inhabited
 
 注意 `first` 不在清单里：它会在同一份预算下把每条 tactic 都试一遍，
 与"逐条试、命中即停"的记账口径冲突（`tried` 就不再是"试过哪些"）。
-复杂度留在 Python 侧的 repair 步骤，本函数只做"一次一条"的探针。 -/
+复杂度留在 Python 侧的 repair 步骤，本函数只做"一次一条"的探针。
+
+第三批（`aesop`，50 倍预算）不加变体：`aesop` 自己会 intro，再试一遍只是翻倍。 -/
 def cheapBatches : Array CheapBatch := #[
-  { tactics := #["rfl", "decide", "simp", "norm_num", "omega"], heartbeatScale := 3 },
+  { tactics := #["rfl", "decide", "simp", "norm_num", "omega"], heartbeatScale := 3,
+    introsFor := #["simp", "norm_num", "omega"] },
   { tactics := #["ring", "field_simp", "positivity", "linarith", "nlinarith",
-                 "constructor", "aesop"], heartbeatScale := 10 },
+                 "constructor", "aesop"], heartbeatScale := 10,
+    introsFor := #["ring", "field_simp", "positivity", "linarith", "nlinarith", "constructor"] },
   { tactics := #["aesop"], heartbeatScale := 50 }
 ]
+
+/-- 一条 tactic 对应的探针脚本：先试原样，命中不了再试 `intros` 之后（见 `CheapBatch.introsFor`）。 -/
+def probeScripts (batch : CheapBatch) (tactic : String) : Array String :=
+  if batch.introsFor.contains tactic then #[tactic, s!"intros\n{tactic}"] else #[tactic]
 
 /-- 廉价 tactic 兜底：依次试三批，返回第一条清空子目标的 tactic。
 
@@ -143,15 +199,25 @@ def tryCheapTactics (stmt : String) : TacticM CheapResult := do
   | .error detail => return { hit := false, detail := detail }
   | .ok ty =>
     let base ← getTrivialHeartbeats
+    let budgetMs ← getCheapBudgetMs
+    let start ← nowNanos
     let mut tried : Array (String × Bool × Nat) := #[]
+    let mut exhausted := false
     for batch in cheapBatches do
       let budget := base * batch.heartbeatScale
       for tactic in batch.tactics do
-        let closed ← closesGoalWithBudget ty tactic budget
-        tried := tried.push (tactic, closed, budget)
-        if closed then
-          return { hit := true, tactic := tactic, proof := tactic, tried := tried }
-    return { hit := false, tried := tried }
+        for script in probeScripts batch tactic do
+          if !exhausted then
+            let closed ← closesGoalWithBudget ty script budget
+            tried := tried.push (script, closed, budget)
+            if closed then
+              let elapsedMs := ((← nowNanos) - start) / 1000000
+              return { hit := true, tactic := script, proof := script, tried := tried,
+                       elapsedMs := elapsedMs }
+            else if budgetMs > 0 && ((← nowNanos) - start) / 1000000 >= budgetMs then
+              exhausted := true
+    let elapsedMs := ((← nowNanos) - start) / 1000000
+    return { hit := false, tried := tried, exhausted := exhausted, elapsedMs := elapsedMs }
 
 end Trivial
 end SgsLean

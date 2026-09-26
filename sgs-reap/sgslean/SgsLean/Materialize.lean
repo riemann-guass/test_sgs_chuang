@@ -72,11 +72,15 @@ def indentBlock (s : String) : String :=
 def entryName (index : Nat) (entry : LemmaEntry) : String :=
   if entry.name.isEmpty then s!"sgs_lem_{index + 1}" else entry.name
 
-/-- 生成文件内容。 -/
-def render (imports : String) (entries : Array LemmaEntry) : String :=
+/-- 生成文件内容。
+
+`imports` 是**模块列表**而不是一段拼接好的字符串：Lean 的 `import` 每条只能跟一个模块，
+`import Mathlib SgsLean.GeneratedLibrary` 是语法错误（实测：物化文件编译失败，
+报 `unexpected identifier; expected command`）。一个模块一行。 -/
+def render (imports : Array String) (entries : Array LemmaEntry) : String :=
   let headerLines : List String :=
     ["/- 自动生成：由 SgsLean.Materialize 落盘，请勿手改。 -/"]
-    ++ (if imports.isEmpty then [] else ["import " ++ imports])
+    ++ imports.toList.map (fun m => "import " ++ m)
     ++ ["", "set_option autoImplicit true", ""]
   let body : List String := entries.toList.mapIdx fun n entry =>
     let tag := if entry.source.isEmpty then "" else s!"-- 来源：{entry.source}\n"
@@ -84,7 +88,7 @@ def render (imports : String) (entries : Array LemmaEntry) : String :=
   String.intercalate "\n" (headerLines ++ body)
 
 /-- 把已验证引理写进 `path`。返回写入/跳过条数与名字列表。 -/
-def emit (path : System.FilePath) (entries : Array LemmaEntry) (imports : String)
+def emit (path : System.FilePath) (entries : Array LemmaEntry) (imports : Array String)
     : IO MaterializeResult := do
   let good := entries.filter (fun e => e.verified)
   let skipped := entries.size - good.size

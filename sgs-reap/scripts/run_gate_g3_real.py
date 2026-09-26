@@ -135,7 +135,13 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str
     for target in targets:
         payload = {"statement": target["statement"], "num_samples": args.k}
         if library:
-            payload["library"] = library
+            # **按目标**注入（与在线路径同一套检索口径）：把整库原样塞进 prompt 时，
+            # 与当前命题无关的引理占满预算，模型不会引用它们——"引用数=0"会是
+            # 假象而不是结论。这里用符号重叠 + 复用密度排序取前 `--library-slots` 条。
+            from sgsr.pipeline.retrieval import retrieve_library
+
+            premises = retrieve_library(target["statement"], library, n=args.library_slots)
+            payload["library"] = [{"name": p.name, "stmt": p.statement} for p in premises]
         response = http_post(args.endpoint, payload)
         if isinstance(response.get("error"), dict):
             # 端点故障 ≠ "模型没写出证明"。旧实现把两者都变成"0 篇候选"，
@@ -206,6 +212,8 @@ def main() -> int:
     parser.add_argument("--endpoint", default=DEFAULT_SOLVE)
     parser.add_argument("--limit", type=int, default=12)
     parser.add_argument("--k", type=int, default=2)
+    parser.add_argument("--library-slots", type=int, default=10,
+                        help="处理臂每个目标注入几条库引理（按目标检索，不是整库）")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 

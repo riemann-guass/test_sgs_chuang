@@ -55,7 +55,7 @@ class Backend:
         messages: list[dict],
         max_tokens: int = 8192,
         temperature: float = 1.0,
-        max_retries: int = 3,
+        max_retries: int = 5,
     ) -> tuple[str, dict]:
         """返回 (可见回答文本, meta)。
 
@@ -88,6 +88,10 @@ class Backend:
         }
         if self.disable_thinking:
             payload["thinking"] = {"type": "disabled"}
+        # 重试策略：可重试状态码与网络层错误都退避重试。
+        # phase28 实测：一轮 20 题里有 3 题连续 6 次（代理 3 次 × 客户端 1 次重试）
+        # 都拿到 `SSL: UNEXPECTED_EOF_WHILE_READING`——那是 API 侧的连接被掐断，
+        # 几十秒后自己恢复。3 次重试（2+4 s）不够，改成 5 次（2+4+8+16 s）。
         last_error = ""
         start = time.perf_counter()
         for attempt in range(max_retries):

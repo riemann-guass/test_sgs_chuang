@@ -120,6 +120,22 @@ def main() -> int:
         except LibrarySourceError as exc:
             print(f"[round] {exc}")
             return 2
+    # ── 处理臂的 import 守卫（phase22 踩过：库在 Python 里非空、Lean 环境里没有）──
+    # 库非空却不 import `SgsLean.GeneratedLibrary` 时，提示词里给的 `sgs_lem_*` 名字
+    # 在验证环境里根本不存在：模型照抄名字 → `unknown identifier` → 表现成"库没用"。
+    # 这种假结论不能流进报告，所以宁可直接拒绝启动。
+    library_nonempty = library_path.exists() and library_path.read_text(encoding="utf-8").strip()
+    has_generated_import = any("GeneratedLibrary" in part for part in args.imports.split(","))
+    if library_nonempty and not has_generated_import and not args.imports.strip().lower() == "none":
+        print(f"[round] 拒绝：库 {library_path.name} 非空，但 --imports 里没有 "
+              f"`SgsLean.GeneratedLibrary`（当前 {args.imports!r}）。")
+        print("        提示词会给出 `sgs_lem_*` 名字，而 Lean 环境里没有这些常量，")
+        print("        于是所有引用都报 unknown identifier、被误读成'库没用'。")
+        print("        请用：--imports Mathlib,SgsLean.GeneratedLibrary")
+        return 2
+    if library_nonempty and not generated_path.exists():
+        print(f"[round] 警告：库非空但物化文件不存在（{args.generated}）——"
+              f"先跑 `scripts/build_library.py --from-library` 重建它")
     if args.reset_library and library_path.exists():
         library_path.unlink()
         print(f"[round] 已清空库：{library_path}")
@@ -150,6 +166,11 @@ def main() -> int:
         library_path=library_path,
         generated_path=generated_path,
         lean_server_factory=make_factory(args.imports),
+        # 写物化文件的那次会话用**基础 import**：生成库自己不能出现在生成文件的
+        # import 里（自我循环导入，编译必失败）。
+        materialize_factory=make_factory(
+            ",".join(m for m in args.imports.split(",") if "GeneratedLibrary" not in m) or "none"
+        ),
     )
 
     started = time.perf_counter()

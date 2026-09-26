@@ -249,8 +249,13 @@ def solve_prompt(
         )
         parts.append(
             "\nAVAILABLE LEMMAS: the following lemmas are ALREADY PROVED and available in the "
-            "environment under exactly these names. You may cite them directly "
-            "(e.g. `exact sgs_lem_1 ...` or `rw [sgs_lem_2]`). They are optional:\n"
+            "environment under exactly these names (they are NOT in Mathlib, so Mathlib will not "
+            "find them for you). **Check them FIRST**: if one of them (possibly after `intro`/`rw`) "
+            "closes or shortens the goal, cite it by name — `exact sgs_lem_xxx`, "
+            "`rw [sgs_lem_xxx]`, `simpa using sgs_lem_xxx …` — instead of re-deriving the fact "
+            "from scratch. Citing an available lemma is cheaper and much less error-prone than "
+            "guessing Mathlib names. They are optional only in the sense that you may ignore them "
+            "when none applies:\n"
             f"{blocks}\n"
         )
     parts.append(

@@ -470,6 +470,12 @@ class Prover:
                     result.notes.append(
                         f"cheap 命中 {cheap.get('tactic')} 但未过终检：{attempt.reason}"
                     )
+                elif cheap.get("exhausted") is True:
+                    # "没试完"与"试过但都不行"是两件事：前者说明清扫被整条墙钟上限截断，
+                    # 兜底是否本来能解出是**未知**的，不能记成兜底失败。
+                    result.notes.append(
+                        f"cheap 清扫达到墙钟上限（{cheap.get('elapsedMs')} ms），未试完清单"
+                    )
 
             # ④ 分层检索：**放到门检之后**（规格 3.4 节的顺序）。
             # 审计指出旧实现先检索再门检——不合法/不合式的输入也会先去打一次外部检索 API，
@@ -571,4 +577,11 @@ class Prover:
 def _default_lean_factory(imports: str = "Mathlib", stderr_path=None):
     from sgsr.verification.client import LeanServer
 
-    return LeanServer(imports=imports, stderr_path=stderr_path)
+    # **必须显式给单作业心跳预算**：不给就用服务端的默认值（4,000,000），
+    # 而离线脚本（run_round / build_library / g3 / calibrate）都传 `budget_for_jobs()`
+    # （= 400M）。两条路不一致的后果实测过：D 上的 `aime_1984_p15` 在 4M 下门检
+    # 直接 `exception`（`whnf` 超时），而同一条语句在 400M 下能过门检——
+    # 于是"在线九步"的 pass@k 里混进了一个纯预算伪影。
+    from sgsr.verification.client import budget_for_jobs
+
+    return LeanServer(imports=imports, heartbeats=budget_for_jobs(), stderr_path=stderr_path)

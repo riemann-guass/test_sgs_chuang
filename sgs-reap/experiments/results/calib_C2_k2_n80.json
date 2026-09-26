@@ -1,0 +1,2105 @@
+{
+  "generated_at": "2026-09-26T07:52:18.762580+00:00",
+  "commit": "fa0fa82",
+  "corpus": {
+    "label": "C",
+    "path": "D:\\bianma\\code\\大创\\sgs-reap\\data\\C.jsonl",
+    "rows": 80,
+    "library_hash": "none"
+  },
+  "config": {
+    "k": 2,
+    "endpoint": "http://127.0.0.1:8770/solve",
+    "imports": "Mathlib",
+    "cheap": true,
+    "limit": 80
+  },
+  "tiers": {
+    "easy": 29,
+    "hard": 46,
+    "nearmiss": 5
+  },
+  "backend_errors": 0,
+  "tokens": {
+    "prompt_tokens": 21107,
+    "completion_tokens": 230060,
+    "reasoning_tokens": 0,
+    "total": 251167,
+    "per_call": 3139.6
+  },
+  "timing": {
+    "total_s": 1107.9
+  },
+  "criterion": "easy = 兜底命中或 solve_rate=1；unknown_cheap = 兜底清扫被墙钟上限截断；nearmiss = 0<rate<1；hard = rate=0。分母固定为 k（没生成出证明也算失败）。",
+  "per_target": {
+    "C2:AddCommGroup.modEq_iff_intModEq": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 83,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "parse_error"
+        }
+      ]
+    },
+    "C2:Choose.choose_modEq_choose_mul_prod_range_choose": {
+      "domain": "nat",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 1440,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "parse_error"
+        }
+      ]
+    },
+    "C2:Dvd.dvd.modEq_zero_int": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 417,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "nearmiss",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:ENNReal.HolderConjugate.conj_eq": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 464,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:ENNReal.HolderConjugate.inv_one_sub_inv'": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 494,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:ENNReal.HolderConjugate.toNNReal": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 590,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:ENNReal.HolderTriple.of_toReal": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 339,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "parse_error"
+        }
+      ]
+    },
+    "C2:ENat.toENNRealRingHom_apply": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "rfl",
+      "probes": 1,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 17,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    "C2:ENat.toENNReal_lt": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "rfl",
+      "probes": 1,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 8,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:ENat.toENNReal_ne_top": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "rfl",
+      "probes": 1,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 11,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Finset.mem_range": {
+      "domain": "finset",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 45,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Finset.notMem_range_self": {
+      "domain": "finset",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 44,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Finset.range_sdiff_zero": {
+      "domain": "finset",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 699,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Finset.range_zero": {
+      "domain": "finset",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "rfl",
+      "probes": 1,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 11,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:GCongr.finset_range_subset_of_le": {
+      "domain": "finset",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 48,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Int.Ioc_filter_modEq_card": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 1147,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.ModEq.add_left_cancel'": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 365,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Int.ModEq.dvd": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 392,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.ModEq.mul_left": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 370,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.ModEq.mul_right_cancel'": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 477,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.ModEq.of_mul_right": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 342,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.ModEq.sub_right": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 370,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "nearmiss",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.addSubmonoid_closure_range_mul_self": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 48,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Int.add_modulus_modEq_iff": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 42,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.bit_coe_nat": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 42,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Int.bitwise.eq_3": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "intros; constructor",
+      "probes": 20,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 500,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Int.bitwise_xor": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 498,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    "C2:Int.bodd_two": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "rfl",
+      "probes": 1,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 11,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Int.card_Ioc": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 38,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Int.card_fintype_Ioc_of_le": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "aesop",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 981,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.coe_leastOfBdd_eq": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 503,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Int.csSup_eq_greatestOfBdd": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 644,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Int.div_le_div_iff_of_dvd_of_neg_of_neg": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 706,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.div_lt_div_iff_of_dvd_of_neg_of_neg": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 711,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.dvd_div_iff_mul_dvd": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "aesop",
+      "probes": 21,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 464,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.ediv_ediv_eq_ediv_mul": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 532,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Int.eq_of_mod_eq_of_natAbs_sub_lt_natAbs": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 525,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Int.exists_greatest_of_bdd": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 697,
+      "proofs": 0,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": []
+    },
+    "C2:Int.fib_add": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 466,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Int.fib_eq_zero": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 41,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Int.fib_neg_two": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "rfl",
+      "probes": 1,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 17,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:Int.fib_two_mul": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 451,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    "C2:Int.gcd_a_modEq": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 419,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    "C2:Int.gcd_eq_gcd_ab": {
+      "domain": "int",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 442,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:IsPrimePow.minFac_pow_factorization_eq": {
+      "domain": "nat",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 464,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:List.Ico.eq_cons": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 1054,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:List.Ico.filter_le_of_le_bot": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "aesop",
+      "probes": 21,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 621,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:List.Ico.filter_lt_of_top_le": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "aesop",
+      "probes": 21,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 618,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:List.Ico.nodup": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 344,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:List.Ico.succ_top": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 1100,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:List.Nat.antidiagonal_succ": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 48,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    "C2:List.Nat.nodup_antidiagonal": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 336,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:List.isChain_range": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 800,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:List.ofFn_id": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "intros; constructor",
+      "probes": 20,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 307,
+      "proofs": 2,
+      "ok_count": 2,
+      "solve_rate": 1.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "reason": "ok"
+        }
+      ]
+    },
+    "C2:List.ranges_disjoint": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 337,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    "C2:List.sorted_le_range": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 340,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:List.tfae_not_iff": {
+      "domain": "list",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 372,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    "C2:Multiset.Nat.antidiagonal_succ'": {
+      "domain": "multiset",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 1143,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unclosed_goals"
+        }
+      ]
+    },
+    "C2:Multiset.Nat.nodup_antidiagonal": {
+      "domain": "multiset",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 48,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Multiset.notMem_range_self": {
+      "domain": "multiset",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 45,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Multiset.range_subset": {
+      "domain": "multiset",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 374,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "nearmiss",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:NNReal.HolderConjugate.conjExponent": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 497,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:NNReal.HolderConjugate.inv_inv": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 738,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "parse_error"
+        }
+      ]
+    },
+    "C2:NNReal.HolderConjugate.sub_one_ne_zero": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 587,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "parse_error"
+        }
+      ]
+    },
+    "C2:NNReal.HolderTriple.holderConjugate_div_div": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 540,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:NNReal.HolderTriple.inv_ne_zero'": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 577,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unclosed_goals"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:NNReal.HolderTriple.left_pos": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 461,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:NNReal.HolderTriple.of_pos": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 690,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:NNReal.HolderTriple.one_div_pos": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 787,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "parse_error"
+        }
+      ]
+    },
+    "C2:NNReal.continuous_sqrt": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 402,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "nearmiss",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "exception"
+        }
+      ]
+    },
+    "C2:NNReal.holderTriple_iff": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 1050,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "parse_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "parse_error"
+        }
+      ]
+    },
+    "C2:NNReal.sq_sqrt": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 54,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:NNReal.sqrt_inv": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "aesop",
+      "probes": 21,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 998,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:NNReal.sqrt_mul_self": {
+      "domain": "real",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 41,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Nat.AtLeastTwo.neZero_sub_one": {
+      "domain": "nat",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 397,
+      "proofs": 2,
+      "ok_count": 1,
+      "solve_rate": 0.5,
+      "tier": "nearmiss",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": true,
+          "reason": "ok"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Nat.Coprime.dvd_mul_right": {
+      "domain": "nat",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 522,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Nat.Coprime.odd_of_right": {
+      "domain": "nat",
+      "source_corpus": "C2",
+      "cheap_hit": true,
+      "cheap_tactic": "simp",
+      "probes": 3,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 40,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "easy",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "unknown_identifier"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Nat.Dvd.dvd.nat_lcm_left": {
+      "domain": "nat",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 406,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    },
+    "C2:Nat.Ioc_filter_dvd_card_eq_div": {
+      "domain": "nat",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 508,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "unknown_identifier"
+        }
+      ]
+    },
+    "C2:Nat.ModEq.add_le_of_lt": {
+      "domain": "nat",
+      "source_corpus": "C2",
+      "cheap_hit": false,
+      "cheap_tactic": "",
+      "probes": 22,
+      "cheap_exhausted": false,
+      "cheap_elapsed_ms": 505,
+      "proofs": 2,
+      "ok_count": 0,
+      "solve_rate": 0.0,
+      "tier": "hard",
+      "backend_error": "",
+      "verdicts": [
+        {
+          "index": 0,
+          "ok": false,
+          "reason": "type_error"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "reason": "type_error"
+        }
+      ]
+    }
+  }
+}

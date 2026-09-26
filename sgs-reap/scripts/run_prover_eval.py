@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -116,6 +117,13 @@ def _backend_model(endpoint: str) -> str:
         return f"{payload.get('backend')}/{payload.get('model')}"
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
         return "unknown"
+
+
+def _heartbeats() -> int:
+    """当前生效的单作业心跳预算（写进报告，供事后判断"判定是不是被预算掐死"）。"""
+    from sgsr.verification.client import budget_for_jobs
+
+    return budget_for_jobs()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -235,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
 
     started = time.perf_counter()
     records: list[dict] = []
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     for index, row in enumerate(rows, start=1):
         result = prover.prove(row["statement"], budget=budget)
         record = result.to_dict()
@@ -243,11 +253,65 @@ def main(argv: list[str] | None = None) -> int:
         records.append(record)
         print(f"[eval] {index}/{len(rows)} {record['id']}: solved={record['solved']} "
               f"path={record['path']} tokens={sum(record['usage'].get(k, 0) for k in
-                                                  ('prompt_tokens', 'completion_tokens',
-                                                   'reasoning_tokens'))}")
+                                                   ('prompt_tokens', 'completion_tokens',
+                                                    'reasoning_tokens'))}")
+        # **逐题落盘**：整轮跑完才写报告的话，末尾一个异常（实测踩过：少 import 一个
+        # `os` 就 `NameError`）会把几小时的结果全丢掉。这里每题都刷一次，
+        # 中途崩掉也留下一份带 `partial=true` 的可用报告。
+        out_path.write_text(
+            json.dumps(build_report(records, label=label, args=args, budget=budget,
+                                    library_path=library_path, imports=imports, prover=prover,
+                                    started=started, partial=True),
+                       ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
-    # ── 分口径统计（规格 8.2 + 审计"不要把装置故障算成模型能力"）──
-    # 输入问题（门检拒绝）与后端故障都**不是**这道题"没解出"，必须从分母里剔除。
+    report = build_report(records, label=label, args=args, budget=budget,
+                          library_path=library_path, imports=imports, prover=prover,
+                          started=started, partial=False)
+    out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if test_run:
+        # 台账只记"跑过 T"这件事本身：时间、提交号、库版本、配置与结果摘要。
+        # 不写路径是因为它就在 `experiments/results/` 里，按时间能对上。
+        append_test_ledger({
+            "generated_at": report["generated_at"],
+            "commit": report["commit"],
+            "library_hash": report["library_hash"],
+            "report": str(out_path.relative_to(ROOT)),
+            "config": report["config"],
+            "pass_at_k": report["pass_at_k"],
+            "targets": report["targets"],
+            "forced": bool(args.force_test_rerun),
+        })
+        print(f"[eval] 已把这次 T 运行写进台账 {TEST_LEDGER}（共 "
+              f"{len(read_test_ledger())} 条）")
+    def pct(value) -> str:
+        return "n/a" if value is None else f"{value:.3f}"
+
+    print(f"[eval] 可评测 {report['evaluable']}/{report['targets']}"
+          f"（门检拒绝 {report['excluded_gate_rejected']}、"
+          f"装置故障 {report['excluded_backend_errors']} 已剔除）")
+    print(f"[eval] pass@{args.k} = {pct(report['pass_at_k'])}"
+          f"（{report['solved']}/{report['evaluable']}）"
+          f"；首轮 {pct(report['pass_at_k_first_round'])}"
+          f"；不含兜底 {pct(report['pass_at_k_model_only'])}")
+    print(f"[eval] 兜底命中 {report['cheap_hits']}；"
+          f"总 token {report['tokens']['total']}（计费口径 = prompt+completion）；"
+          f"CostPerSolved {report['cost_per_solved']}")
+    print(f"[eval] 报告写入 {out_path}")
+    return 0
+
+
+def build_report(records: list[dict], *, label: str, args, budget, library_path, imports: str,
+                 prover, started: float, partial: bool) -> dict:
+    """把已跑完的逐题记录汇总成报告。
+
+    **抽成函数**是为了支持逐题落盘（见 `main` 的循环）：跑一道、写一次，
+    末尾崩掉也不会把几小时的结果一起丢掉。`partial=true` 表示"后面还有题在跑"。
+
+    两个口径必须一起报（规格 8.2 + 审计"不要把装置故障算成模型能力"）：
+    输入问题（门检拒绝）与后端故障都**不是**这道题"没解出"，从分母里剔除并单列。
+    """
     def first_round_ok(record: dict) -> bool:
         return any(a.get("ok") is True and int(a.get("round") or 0) == 0
                    and a.get("source") in ("cheap", "solve")
@@ -284,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     by_path = collections.Counter(r["path"] for r in records)
 
     report = {
+        "partial": partial,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "dataset": label,
         # ── 报告元数据：审计指出旧报告缺这些，导致数字无法回溯 ──
@@ -294,7 +359,10 @@ def main(argv: list[str] | None = None) -> int:
             "lean_imports": imports,
             "endpoint": args.endpoint,
             "backend_model": _backend_model(args.endpoint),
-            "heartbeats": "见 sgsr/verification/client.py 的 budget_for_jobs",
+            # 判定预算必须写进报告：预算一变，同一道题的判定就可能从 exception 翻成 ok
+            #（实测 aime_1984_p15 在 4M 心跳下门检失败、400M 下通过）。
+            "heartbeats_per_job": _heartbeats(),
+            "cheap_budget_ms": os.environ.get("SGSLEAN_CHEAP_BUDGET_MS", "60000（默认）"),
         },
         "config": {
             "k": args.k,
@@ -331,37 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         "timing": {"total_s": round(time.perf_counter() - started, 1)},
         "per_target": records,
     }
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    if test_run:
-        # 台账只记"跑过 T"这件事本身：时间、提交号、库版本、配置与结果摘要。
-        # 不写路径是因为它就在 `experiments/results/` 里，按时间能对上。
-        append_test_ledger({
-            "generated_at": report["generated_at"],
-            "commit": report["commit"],
-            "library_hash": report["library_hash"],
-            "report": str(out_path.relative_to(ROOT)),
-            "config": report["config"],
-            "pass_at_k": report["pass_at_k"],
-            "targets": report["targets"],
-            "forced": bool(args.force_test_rerun),
-        })
-        print(f"[eval] 已把这次 T 运行写进台账 {TEST_LEDGER}（共 "
-              f"{len(read_test_ledger())} 条）")
-    def pct(value) -> str:
-        return "n/a" if value is None else f"{value:.3f}"
-
-    print(f"[eval] 可评测 {len(evaluable)}/{len(records)}"
-          f"（门检拒绝 {len(excluded_gate)}、装置故障 {len(backend_errors)} 已剔除）")
-    print(f"[eval] pass@{args.k} = {pct(report['pass_at_k'])}"
-          f"（{len(solved_evaluable)}/{len(evaluable)}）"
-          f"；首轮 {pct(report['pass_at_k_first_round'])}"
-          f"；不含兜底 {pct(report['pass_at_k_model_only'])}")
-    print(f"[eval] 兜底命中 {len(cheap)}；总 token {total_tokens}（计费口径 = prompt+completion）；"
-          f"CostPerSolved {report['cost_per_solved']}")
-    print(f"[eval] 报告写入 {out_path}")
-    return 0
+    return report
 
 
 if __name__ == "__main__":

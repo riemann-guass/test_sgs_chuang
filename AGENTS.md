@@ -168,40 +168,51 @@ D:\bianma\code\大创\
 | 公共入口收敛（HTTP / Lean 客户端 / 语句解析） | `utils/http_client.py` · `verification/client.py` · `data/lean_parse.py` | ✅ phase27（替掉 7 份 HTTP、5 份 Lean 驱动、2 份解析） |
 | 闭环核心测试 | `scripts/run_closure_tests.py`（**60 条断言**，含准入/探索额度/复用测量与落盘、物化→编译→import 往返） | ✅ 60/60（A 组）+ B 组 |
 | D/T 语料 | `data/minif2f_{valid,test}.jsonl` | ✅ phase27 重生成：244/244（旧 229/236，**零丢失零改写**） |
+| P1 真模型数字（D 20 题 k=4） | `experiments/results/p1_dev_k4_n20.json` | ✅ phase28（逐题落盘；含三个口径的 pass@k 与 token） |
+| P2 语料与标定 | `tools/prepare_domain_corpus.py` · `scripts/calibrate_difficulty.py` · `data/C.jsonl` | ✅ phase28（C = C1 63 + C2 132，与 D/T 零重叠；分档 easy/hard/nearmiss） |
+| P2 建库（真模型 3 轮） | `experiments/library.jsonl` | ✅ phase28（**35 条**，C2 来源，含 reuse/exposures/内容哈希名） |
+| 两臂装置检查（库真被引用） | `scripts/run_gate_g3_real.py` | ✅ phase28（处理臂 **14/24 篇**引用库引理；评分制 cover 2.5→3.5） |
 
 **待建**（第二版文档第 9 节的 P1 至 P5）：
 
 | 阶段 | 内容 | 交付 |
 |---|---|---|
-| P1 | 证明器本体：`prover.py` + 兜底臂 + 检索层 + `repair.py` + `scripts/prove.py` | ✅ 实现与离线验证完成（phase25）；**真模型 pass@k 与成本未跑**（需要能出网的进程） |
-| P2 | 小实验台：数据准备、难度标定、复用判据接线、库 ≤100 条 | 能长大的库 |
+| P1 | 证明器本体：`prover.py` + 兜底臂 + 检索层 + `repair.py` + `scripts/prove.py` | ✅ phase28：真模型数字已跑（D 20 题 k=4） |
+| P2 | 小实验台：数据准备、难度标定、复用判据接线、库 ≤100 条 | ✅ phase28：库 35 条、两臂检查给出 14/24 篇引用 |
 | P3 | 三组对照（A：SGS 原样／B：复用判据＋需求／C：随机伪需求） | 可比较的同格式报告 |
 | P4 | 成本与复用分析 | 论文主图（复用率对成本） |
 | P5 | 写作 | 大创报告 + 论文短文 |
 
-**审计遗留（2026-09-22 更新，见 `sgs-reap/docs/phase27-log.md`）**：
+**审计遗留（2026-09-26 更新，见 `sgs-reap/docs/phase28-log.md`）**：
 
-1. **Lean 子进程仍不常驻**——每批仍要付一次 Mathlib 导入（实测 75 s 量级）。
-   phase27 已经去掉"按批放大心跳"这个绕路（每作业一个 command，计数复位），
-   但"同一份 Mathlib 装了 N 遍"还在。上游 SGS 用持久化 REPL（`query_repl`），
-   这是下一件最值钱的工作。
+1. **Lean 子进程仍不常驻**——每批仍要付一次 Mathlib 导入（实测 75 s 量级；P1 一轮 20 题
+   因此耗 2–4 小时）。phase27 已去掉"按批放大心跳"的绕路，但"同一份 Mathlib 装了 N 遍"
+   还在。上游 SGS 用持久化 REPL（`query_repl`），仍是收益最大的一件事。
 2. **三条表述要改**（改主张属"重大方向改变"，须先问用户）：
    "自博弈"命名偏强；子模性保证不适用于真实 pass@k；`reuse` 是"被使用次数"不是"因果复用价值"。
-3. 成本口径按实测：**约 7,500 token/调用**（不是 1,500），单题墙钟约 4.75 分钟；
-   计费口径 = `prompt + completion`（`reasoning_tokens` 是 completion 的子集，不能相加）。
-4. **真模型数字仍缺**：`experiments/results/p1_dev_k4_n20.json`（09-21，pass@4=0.05）是
-   phase26 之前的产物，且当时代理里挂的库来自 D、评测集也是 D（自我循环）——
-   **不能当基线**。修好装置后的第一组数字要重跑。
-5. **`reuse` 的忠实度未审计**：`coverage.spearman` 已就绪，"引用计数代理"与真实
-   边际增益的相关性要等真模型数据。
+3. 成本口径按实测：**约 7,500 token/调用**（不是 1,500）；计费口径 = `prompt + completion`
+   （`reasoning_tokens` 是 completion 的子集，不能相加）；报告固定记录 `heartbeats_per_job`
+   与 `cheap_budget_ms`（判定预算一变，判定本身会变——实测 `aime_1984_p15` 在 4M 下
+   门检 `exception`、400M 下 `ok`）。
+4. **C2 抽样规则偏了**：按名字排序取前 200 条 ⇒ 抽进来的多是 Mathlib 内部管道引理
+   （80 题里 near-miss 只有 5 条，46 条是模型 0/2 的深水区）。P3 之前要按"题面形态"
+   重挑（`∀` 量化的等式/不等式、绑定数适中、不含 typeclass 参数）。
+5. **代理的后端缓存会让"重复轮"空转**：同一 prompt 第二次 `/solve` 直接命中缓存，
+   模型不被调用、拿到同一批候选（实测一轮 73 次调用里 35 次命中）。P3 要重复采样时
+   需在提示词里带轮次/盐，或给代理加关缓存的开关。
+6. **`reuse` 的忠实度仍未审计**：两臂装置检查给出了 14/24 篇引用（装置通了），
+   但"引用计数代理"与真实边际增益的相关性要等 P3/P4 的 `coverage.spearman` 与
+   逐引理 with/without 消融。
 
 **参考基线**：miniF2F valid 修正预算后（k=3）候选级 44/164、目标级 18/57 ≈ 32%；
 近失手（解出率严格介于 0 与 1）约占一成，是唯一有增益信号的区间。
 
-**库的现状（2026-09-22 更新）**：原 `experiments/library.jsonl` 的 4 条引理经核对
-**来源是 miniF2F valid（D）**，属开发期产物——已移入 `experiments/library_cold.jsonl`
-（带 `source_corpus: "D"` 与冷存原因），**活动库现在是空的，等 P2 在 C 上重建**。
-新的来源守卫（`library.add_many` 拒收 + `assert_clean_sources` 复核）会直接拒收它们。
+**库的现状（2026-09-26 更新）**：phase26 那 4 条 D 来源的开发期引理仍在
+`experiments/library_cold.jsonl` 冷存（来源守卫会直接拒收它们）。
+**活动库 `experiments/library.jsonl` 是 phase28 在 C 上建的：35 条，全部
+`source_corpus: "C2"`（来源是 Mathlib 定理，`source_target` 记定理全名），
+带 `name`（内容哈希）/`reuse`/`reuse_targets`/`exposures`/`cost_tokens`。**
+两臂装置检查（C 的建库集、12 题 k=2）显示处理臂 14/24 篇证明引用了库引理。
 
 ---
 
@@ -227,8 +238,19 @@ $env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"
 
 # P1：单题 / 批量（真模型数字要在这里跑）
 & $py scripts\prove.py --statement "∀ (a b : Nat), a + b = b + a" --k 4
-& $py scripts\run_prover_eval.py --set D --k 4 --limit 20 --out experiments\results\p1_dev_k4_n20.json
+& $py scripts\run_prover_eval.py --set D --k 4 --limit 20 --library none `
+      --out experiments\results\p1_dev_k4_n20.json          # 基线臂（不带库）；逐题落盘
 & $py scripts\run_gate_g3_real.py --select nearmiss --limit 6 --k 4 --endpoint http://127.0.0.1:8770/solve
+
+# P2：语料 → 难度标定 → 建库（真模型）
+& $py tools\prepare_domain_corpus.py --c2-limit 200 --sample 150 `
+      --out data\C.jsonl --manifest data\corpus_manifest.json
+& $py scripts\calibrate_difficulty.py --set C --corpus C2 --limit 80 --k 2 `
+      --endpoint http://127.0.0.1:8770/solve --out experiments\results\calib_C2_k2_n80.json --tier-dir data
+& $py scripts\run_round.py --rounds 3 --curriculum data\C_build.jsonl --target-limit 30 `
+      --k 2 --n 2 --imports Mathlib,SgsLean.GeneratedLibrary --library-budget 80 `
+      --source-corpus C2 --solve-endpoint http://127.0.0.1:8770/solve `
+      --conjecture-endpoint http://127.0.0.1:8770/conjecture
 
 # 自检
 & $py -m compileall -qf sgsr scripts tools

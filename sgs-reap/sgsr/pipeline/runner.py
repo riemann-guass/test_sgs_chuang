@@ -60,7 +60,7 @@ from sgsr.pipeline.library import (
     name_for,
     write_all as write_library,
 )
-from sgsr.pipeline.retrieval import symbols
+from sgsr.pipeline.retrieval import retrieve_library, symbols
 from sgsr.data.schema import candidate_id, normalize_sig, target_of, trace_from_job
 
 
@@ -293,6 +293,7 @@ class RoundRunner:
         library_path: Path,
         generated_path: Path,
         lean_server_factory,
+        materialize_factory=None,
         log=print,
     ) -> None:
         self.curriculum = curriculum
@@ -301,6 +302,11 @@ class RoundRunner:
         self.library_path = library_path
         self.generated_path = generated_path
         self.lean_server_factory = lean_server_factory
+        #: 写物化文件时用的服务工厂：**import 列表要排除 `SgsLean.GeneratedLibrary`**。
+        #: 生成文件的头部照抄 `SGSLEAN_IMPORTS` 时，处理臂会把生成库自己写进去 ⟹
+        #: 自我循环导入 ⟹ 编译失败（实测：闭环第一轮就停在这里）。
+        #: 不传就退回主工厂（那时调用方要保证 import 里没有生成库）。
+        self.materialize_factory = materialize_factory or lean_server_factory
         self.log = log
         self._solved_prev: set[str] | None = None
         # 每轮会起几次 `lean` 子进程（= 几次 Mathlib 导入）。导入是本项目最贵的固定成本，
@@ -308,7 +314,8 @@ class RoundRunner:
         self._batches = 0
 
     # ---- ① 采轨迹 ----
-    def collect(self, targets: list[dict], library: list[dict]
+    def collect(self, targets: list[dict], library: list[dict], report: RoundReport | None = None,
+                exposed: set[str] | None = None
                 ) -> tuple[list[dict], list[dict], list[dict]]:
         """在目标集上跑 Solver → 记录每条候选证明的轨迹（含子目标签名）。
 
@@ -322,10 +329,25 @@ class RoundRunner:
         """
         attempts: list[dict] = []
         backend_errors: list[dict] = []
+        injected: list[int] = []
         for target in targets:
+            # **按目标**注入：走检索层（符号重叠 + 复用密度），而不是"全轮公用的前 N 条"。
+            # 规格 2.2 的分层检索本来就该在求解前对**当前命题**取库；在线路径
+            # （`prover.retrieve`）一直是这么做的，离线闭环以前没有，于是提示词里塞的是
+            # 库里最早那 12 条（与当前目标无关），模型自然不会引用。
+            per_target_library = (
+                retrieve_library(target["statement"], library,
+                                 n=self.config.prompt_slots) if library else []
+            )
+            prompt_items = [{"name": p.name, "stmt": p.statement} for p in per_target_library]
+            injected.append(len(prompt_items))
+            if exposed is not None:
+                # 记录"本轮真的进过提示词"的引理名——淘汰判据里的"被给过机会"
+                # 依据的就是这个集合（不是"库里有就算有过机会"）。
+                exposed.update(str(p.name) for p in per_target_library)
             try:
                 proofs = solve(target["statement"], self.config.k_solve,
-                               self.config.solve_endpoint, library=library)
+                               self.config.solve_endpoint, library=prompt_items)
             except BackendUnavailable as exc:
                 backend_errors.append({"target": target["id"], "error": str(exc)})
                 continue
@@ -337,7 +359,13 @@ class RoundRunner:
                     "statement": target["statement"],
                     "proof": proof,
                 })
+        if report is not None:
+            report.funnel["prompt_injected_per_target"] = (
+                round(sum(injected) / len(injected), 2) if injected else 0
+            )
+            report.funnel["prompt_injected_max"] = max(injected) if injected else 0
         traces: list[dict] = []
+        trace_errors = 0
         if attempts:
             with self.lean_server_factory(len(attempts)) as server:
                 jobs = [{"id": a["id"], "target": a["target"], "cmd": "trace",
@@ -345,8 +373,18 @@ class RoundRunner:
                 responses = server.batch(jobs)
                 self._batches += 1
             for attempt in attempts:
-                result = (responses.get(attempt["id"]) or {}).get("result") or {}
+                # 同样的纪律：轨迹批也可能出现"响应缺失"。那意味着这条候选的判定**未知**，
+                # 不能当成"证明没过"（那会污染需求统计与复用测量），单列并跳过。
+                entry = responses.get(attempt["id"])
+                if entry is None or entry.get("error"):
+                    trace_errors += 1
+                    continue
+                result = entry.get("result") or {}
                 traces.append(trace_from_job(attempt, result))
+            if trace_errors and report is not None:
+                report.funnel["protocol_errors_trace"] = trace_errors
+                report.reasons["protocol:trace"] = \
+                    report.reasons.get("protocol:trace", 0) + trace_errors
         return traces, attempts, backend_errors
 
     # ---- ②′ 复用测量 ----
@@ -428,10 +466,20 @@ class RoundRunner:
             self._batches += 1
 
         survivors: list[dict] = []
+        protocol_errors = 0
         for cand in candidates:
-            gate = (responses.get(f"c:{cand['key']}") or {}).get("result") or {}
-            trivial = (responses.get(f"t:{cand['key']}") or {}).get("result") or {}
-            novelty = (responses.get(f"n:{cand['key']}") or {}).get("result") or {}
+            # **协议错误 ≠ 判定为假**：服务端没回判定（响应缺失 / internal_error）时，
+            # 我们**不知道**这条候选该不该过门。把它记成"门检拒绝"会让装置故障伪装成
+            # "候选质量差"——实测：Lean 的 maxErrors 上限让 156 个作业只回 51 条，
+            # 2/3 的候选被静默当成"没过门检"丢掉了。
+            entries = [responses.get(f"{tag}:{cand['key']}") for tag in ("c", "t", "n")]
+            if any(e is None or e.get("error") for e in entries):
+                protocol_errors += 1
+                report.reasons["protocol:screen"] = report.reasons.get("protocol:screen", 0) + 1
+                continue
+            gate = (entries[0] or {}).get("result") or {}
+            trivial = (entries[1] or {}).get("result") or {}
+            novelty = (entries[2] or {}).get("result") or {}
             report.funnel["candidates"] = report.funnel.get("candidates", 0) + 1
             # 相关度硬门：先做（免费），再做门检与硬门（要 Lean）
             parent_symbols = symbols(str(cand.get("target_statement", "")))
@@ -456,6 +504,14 @@ class RoundRunner:
                 continue
             report.funnel["passed_hard_gates"] = report.funnel.get("passed_hard_gates", 0) + 1
             survivors.append(cand)
+        if protocol_errors:
+            report.funnel["protocol_errors_screen"] = protocol_errors
+            # 超过 20% 就**当轮停下**：这种规模的静默丢失会让漏斗数字完全失真。
+            if protocol_errors > 0.2 * len(candidates):
+                raise RuntimeError(
+                    f"硬门批有 {protocol_errors}/{len(candidates)} 条候选拿不到判定"
+                    "（协议错误）——不要继续，先修装置（见 phase28 的 maxErrors 事件）"
+                )
         return survivors
 
     # ---- ⑤ 求解 + ⑥ 验证 + ⑦ 软分 ----
@@ -630,7 +686,7 @@ class RoundRunner:
              "source": row.get("source", "library")}
             for row in load_library(self.library_path)
         ]
-        with self.lean_server_factory(len(full)) as server:
+        with self.materialize_factory(len(full)) as server:
             response = server.batch([{"id": "mat", "cmd": "materialize",
                                       "path": str(self.generated_path), "entries": full}])
             self._batches += 1
@@ -709,7 +765,8 @@ class RoundRunner:
         self.log(f"[round {cfg.round_index}] 目标 {len(targets)} 条；库 {len(library)} 条")
 
         # ① 采轨迹（"无库"臂天然来自第一轮；之后各轮的提示词里已有上一轮的库）
-        traces, attempts, solve_errors = self.collect(targets, lib_for_prompt)
+        exposed: set[str] = set()
+        traces, attempts, solve_errors = self.collect(targets, lib_for_prompt, report, exposed)
         if solve_errors:
             # 装置故障要单列：把它混进"没解出"会让解出率凭空变低。
             report.reasons["backend_error:solve"] = len(solve_errors)
@@ -772,9 +829,8 @@ class RoundRunner:
         verified = self.prove_verify_measure(survivors, report)
 
         # ⑧ 复用记账 + 曝光计数 + 淘汰（写回库），再按探索额度准入
-        prompt_names = {str(row.get("name") or name_for(str(row.get("stmt", ""))))
-                        for row in lib_for_prompt}
-        evicted = self.update_library(report, cited, prompt_names)
+        # 曝光计数用**本轮真的被注入过的名字**（`collect` 里按目标检索得到）。
+        evicted = self.update_library(report, cited, exposed)
         if evicted:
             self.log(f"[round {cfg.round_index}] 冷存 {len(evicted)} 条僵尸引理"
                      f"（reuse=0 且被给过机会）")

@@ -22,6 +22,7 @@
 | `build_library.py` | 单轮漏斗：候选 → 硬门 → 求解 → 验证 → 物化 → 入库（来源三件套强制；写不进库时判 `fail_not_written`） | ✅ phase27 |
 | `run_conjecture.py` | 出题者下游：需求 → 引理候选 → 门检（`--no-demand` 是对照） | ✅ |
 | `run_gate_g2.py` | 需求挖掘的检定（分层统计 + 四条分桶） | ✅ |
+| `calibrate_difficulty.py` | **难度标定**：一次批处理算 `cheap_hit`，一次 `/solve` 采样 + 一次批验证算 `solve_rate`，分档 easy / `unknown_cheap` / nearmiss / hard 并输出分档清单 | ✅ phase28 |
 
 ### 判据与测量
 
@@ -77,6 +78,9 @@ $env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 见下：直接跑脚本�
 * **判定准则写在脚本里、跑之前定死**（每个脚本的文件头都有），避免事后解释。
 * 报告一律带 `mode` 与规模后缀，防止小规模重跑覆盖正式报告。
 * Lean 侧测试在 `sgslean/SgsLean/Test/` 与 `reap-fork/Reap/Test/`，用 `lake build` 跑。
+* **语料准备在 `tools/prepare_domain_corpus.py`**（不在本目录）：C1+C2 合成 `data/C.jsonl`、
+  与 D/T 做命题级同源检查、写 `data/corpus_manifest.json`（计数 + sha256 + 重叠数）。
+  D/T 只校验不重写。
 
 ## 两个"只许有一份"的公共入口
 
