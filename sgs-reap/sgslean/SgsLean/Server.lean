@@ -65,6 +65,12 @@ def defaultTacticTimeoutMs : Nat := 200000
 def snippetFileName : String := "sgslean_snippet.lean"
 def jobsFileName : String := "jobs.json"
 def outFileName : String := "out.json"
+/-- 常驻子进程的文件协议（一次导入、跨批服务）。 -/
+def requestFileName : String := "request.json"
+def servedFileName : String := "served.txt"
+def stopFileName : String := "stop.flag"
+/-- 第 `n` 批的响应文件。**批号唯一 ⟹ 文件名唯一**，见 `serveLoop` 的说明。 -/
+def outFileNameFor (n : Nat) : String := s!"out.{n}.json"
 /-- 子进程的启动脚本（把 lean 的输出重定向到 child.log）。 -/
 def childCmdFileName : String := "run_child.cmd"
 
@@ -315,6 +321,70 @@ def runJobs : TacticM Unit := do
   for index in [:jobs.size] do
     runJob index
 
+/-! ## 常驻子进程（性能修复：一次导入、跨批服务） -/
+
+/-- 读父进程的请求：`{"batch": n, "jobs": [...]}`。
+没准备好（文件不存在 / 父进程正在写 / 字段不全）一律返回 `none`，调用方重试即可——
+**不要**把"暂时读不到"当成错误。 -/
+def readRequest : IO (Option (Nat × Array Json)) := do
+  match ← (try some <$> IO.FS.readFile requestFileName catch _ => pure none) with
+  | none => return none
+  | some text =>
+    match Json.parse text with
+    | .error _ => return none
+    | .ok json =>
+      match json.getObjValAs? Nat "batch", json.getObjValAs? (Array Json) "jobs" with
+      | .ok n, .ok jobs => return some (n, jobs)
+      | _, _ => return none
+
+/-- 已处理到第几批（0 = 还没处理过任何批次）。 -/
+def servedBatch : IO Nat := do
+  match ← (try some <$> IO.FS.readFile servedFileName catch _ => pure none) with
+  | none => return 0
+  | some text => return (text.trimAscii.toString.toNat?).getD 0
+
+/-- `stop.flag` 出现时子进程退出。 -/
+def stopRequested : IO Bool := do
+  return (← (try IO.FS.readFile stopFileName catch _ => pure "go")) == "stop"
+
+/-- **常驻子进程主循环**：一次 `lean` 进程导入一次 Mathlib，然后反复服务多批作业。
+
+父进程把第 `n` 批写成 `request.json`；子进程把该批响应**逐条增量**写进
+`out.<n>.json`，写完再更新 `served.txt`。父进程只要轮询 `out.<n>.json`
+的条数够不够——这就是完成判据。
+
+三条时序纪律（phase26 在这上面踩过四个坑，都是"父与子对同一个固定文件的读写时序假设"）：
+
+* 完成判据是**响应条数**，不是退出码、也不是"标记文件"；
+* **批号唯一 ⟹ 文件名唯一**：`out.<n>.json` 在本批开始前不存在，
+  所以不存在"把上一批的残留当成这一批"的可能；
+* 读 `request.json` 失败（父进程正在写 / 字段还没齐）只是"还没准备好"，退避重试。
+
+心跳：整个循环跑在**一个 command** 里，所以片段设 `maxHeartbeats 0`（不限制），
+真正的上界是每条 tactic 的墙钟 `reap.timeout`（默认 200 s）——与上游 SGS 的配置一致
+（它也是 `set_option maxHeartbeats 0` + 墙钟超时）。 -/
+def serveLoop : TacticM Unit := do
+  let mut running := true
+  while running do
+    if ← stopRequested then
+      running := false
+    else
+      let served ← servedBatch
+      match ← readRequest with
+      | some (n, jobs) =>
+        if n ≤ served then
+          liftM (m := IO) (IO.sleep 30)
+        else
+          IO.FS.writeFile (outFileNameFor n) (Json.arr #[]).compress
+          let mut out : Array Json := #[]
+          for job in jobs do
+            out := out.push (← handleJob job)
+            IO.FS.writeFile (outFileNameFor n) (Json.arr out).compress
+          IO.FS.writeFile servedFileName (toString n ++ "\n")
+      | none =>
+        liftM (m := IO) (IO.sleep 30)
+  return ()
+
 end
 
 /-! ## 父进程侧：片段生成、子进程调度、主循环 -/
@@ -323,7 +393,7 @@ end
 
 每个作业一个 `example` command：心跳计数器按 command 复位，批次尾部不再被前面的作业
 拖死（见 `runJob` 的说明）。`nJobs` 只决定重复几个 command，不插入任何请求内容。 -/
-def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) (nJobs : Nat) : String :=
+def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) (_nJobs : Nat) : String :=
   let mods := parseImports imports
   -- 没有 Mathlib 时要自己补 `ℕ` 记法；有 Mathlib 时**不能**补（重复声明 termℕ 是硬错误）
   let notationPatch := if mods.contains "Mathlib" then #[] else #["import SgsLean.Syntax"]
@@ -336,8 +406,18 @@ def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) (nJobs :
     if mods.contains "Mathlib" then #["open BigOperators Real Nat Topology Rat"] else #[]
   let header := (mods.map (fun m => s!"import {m}")) ++ notationPatch ++
     #["import SgsLean", "import SgsLean.Server"]
-  let body := (List.range nJobs).map fun i =>
-    s!"example : True := by\n  run_tac (SgsLean.Server.runJob {i})\n  trivial"
+  -- **常驻**：一个 example 里跑 `serveLoop`，跨批反复服务（一次导入 Mathlib）。
+  -- 作业数不再决定片段形状（旧设计一个作业一个 command），所以 `_nJobs` 只是
+  -- 保留旧签名——调用方仍会传它，值被忽略。
+  -- 心跳设 0 = 不限制（整个循环在一个 command 里，按 command 累计的额度会把后面的批次掐死）；
+  -- 真正的上界是每条 tactic 的墙钟 `reap.timeout`。
+  let heartbeatOption :=
+    if heartbeats == 0 then "set_option maxHeartbeats 0"
+    else s!"set_option maxHeartbeats {heartbeats}"
+  let body := #[
+    "example : True := by",
+    "  run_tac SgsLean.Server.serveLoop",
+    "  trivial"]
   String.intercalate "\n" ((header ++ opensPatch ++ #[
     "open Lean Meta Elab Tactic",
     "set_option autoImplicit true",
@@ -350,7 +430,7 @@ def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) (nJobs :
     -- 0 = 不限制；每条作业的成败由 `handleJob` 自己如实回报。
     "set_option maxErrors 0",
     -- 这两个值来自环境变量，缺省与库里的默认常量一致。
-    s!"set_option maxHeartbeats {heartbeats}",
+    heartbeatOption,
     -- 单 tactic 的墙钟上限：Mathlib 级 tactic 在解释执行下偶发很慢，
     -- 心跳管住 CPU 预算、墙钟兜住 IO/解释器开销，两者要一起调。
     s!"set_option reap.timeout {tacticTimeoutMs}"] ++ linterPatch ++ #[

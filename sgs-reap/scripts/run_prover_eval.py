@@ -54,7 +54,7 @@ sys.path.insert(0, str(ROOT))
 
 from sgsr.pipeline.prover import Budget, Prover  # noqa: E402
 from sgsr.pipeline.prover import git_commit, library_hash, usage_total  # noqa: E402
-from sgsr.verification.client import preflight_imports  # noqa: E402
+from sgsr.verification.client import preflight_in_session  # noqa: E402
 
 DATA = ROOT / "data"
 REGISTERED = {
@@ -141,6 +141,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--imports", default=None, help="验证环境的 import 列表")
     p.add_argument("--no-cheap", action="store_true", help="关掉廉价兜底（消融）")
     p.add_argument("--no-repair", action="store_true", help="关掉 repair（消融）")
+    p.add_argument("--resume", action="store_true",
+                   help="接着 --out 里已有的报告跑：跳过已完成的 id（报告是逐题落盘的）")
     p.add_argument("--i-know-test-is-one-shot", action="store_true",
                    help="确认要在 T（miniF2F test）上跑——按协议只能跑一次")
     p.add_argument("--force-test-rerun", action="store_true",
@@ -227,44 +229,56 @@ def main(argv: list[str] | None = None) -> int:
           f"imports={imports}；cheap={'off' if args.no_cheap else 'on'}；"
           f"repair={'off' if args.no_repair else 2}")
 
-    # ── 环境预检（有库时必须）──
-    # 库在 Python 里非空、但 Lean 环境里没有对应的 olean 时，处理臂的片段会整批崩，
-    # 表现成"给库之后更差"。这条预检就是为了不让这种假结论进报告。
-    preflight_ok, preflight_detail = preflight_imports(
-        imports, stderr_path=ROOT / "experiments" / "results" / "prover_eval_stderr.log"
-    )
-    if not preflight_ok:
-        raise SystemExit(
-            f"[eval] 环境预检失败（imports={imports}）：{preflight_detail}\n"
-            "        有库时请先 `cd sgslean && lake build SgsLean.GeneratedLibrary`，"
-            "或去掉 --library 跑无库臂。"
-        )
-    print(f"[eval] 环境预检通过（imports={imports}）")
-
     started = time.perf_counter()
     records: list[dict] = []
+    if args.resume and Path(args.out).exists():
+        try:
+            previous = json.loads(Path(args.out).read_text(encoding="utf-8"))
+            records = [r for r in (previous.get("per_target") or []) if r.get("id")]
+        except ValueError:
+            records = []
+        done = {str(r["id"]) for r in records}
+        if done:
+            rows = [r for r in rows if str(r.get("id")) not in done]
+            print(f"[eval] --resume：已有 {len(done)} 条完成，继续 {len(rows)} 条")
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    for index, row in enumerate(rows, start=1):
-        result = prover.prove(row["statement"], budget=budget)
-        record = result.to_dict()
-        record["id"] = row.get("id")
-        record["domain"] = row.get("domain") or row.get("source") or label
-        records.append(record)
-        print(f"[eval] {index}/{len(rows)} {record['id']}: solved={record['solved']} "
-              f"path={record['path']} tokens={sum(record['usage'].get(k, 0) for k in
-                                                   ('prompt_tokens', 'completion_tokens',
-                                                    'reasoning_tokens'))}")
-        # **逐题落盘**：整轮跑完才写报告的话，末尾一个异常（实测踩过：少 import 一个
-        # `os` 就 `NameError`）会把几小时的结果全丢掉。这里每题都刷一次，
-        # 中途崩掉也留下一份带 `partial=true` 的可用报告。
-        out_path.write_text(
-            json.dumps(build_report(records, label=label, args=args, budget=budget,
-                                    library_path=library_path, imports=imports, prover=prover,
-                                    started=started, partial=True),
-                       ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+    already = len(records)          # --resume 时已经完成的条数
+    total_planned = already + len(rows)
+    # **整批共用一个 Lean 会话**：子进程跨批常驻（`SgsLean/Server.lean` 的 `serveLoop`），
+    # 于是 Mathlib 只导入一次，而不是每题一次。实测：20 题从约 5 小时降到分钟级。
+    # 环境预检也在同一会话里做（有库时 `import SgsLean.GeneratedLibrary` 不可用要么
+    # 在这里炸、要么让整批结果失真）。
+    with prover.session() as lean:
+        preflight_ok, preflight_detail = preflight_in_session(lean)
+        if not preflight_ok:
+            raise SystemExit(
+                f"[eval] 环境预检失败（imports={imports}）：{preflight_detail}\n"
+                "        有库时请先 `cd sgslean && lake build SgsLean.GeneratedLibrary`，"
+                "或去掉 --library 跑无库臂。"
+            )
+        print(f"[eval] 环境预检通过（imports={imports}；整批共用一个会话）")
+        for offset, row in enumerate(rows, start=1):
+            index = already + offset
+            result = prover.prove(row["statement"], budget=budget, lean=lean)
+            record = result.to_dict()
+            record["id"] = row.get("id")
+            record["domain"] = row.get("domain") or row.get("source") or label
+            records.append(record)
+            print(f"[eval] {index}/{total_planned} {record['id']}: solved={record['solved']} "
+                  f"path={record['path']} tokens={sum(record['usage'].get(k, 0) for k in
+                                                       ('prompt_tokens', 'completion_tokens',
+                                                        'reasoning_tokens'))}")
+            # **逐题落盘**：整轮跑完才写报告的话，末尾一个异常（实测踩过：少 import 一个
+            # `os` 就 `NameError`）会把几小时的结果全丢掉。这里每题都刷一次，
+            # 中途崩掉也留下一份带 `partial=true` 的可用报告。
+            out_path.write_text(
+                json.dumps(build_report(records, label=label, args=args, budget=budget,
+                                        library_path=library_path, imports=imports,
+                                        prover=prover, started=started, partial=True),
+                           ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
     report = build_report(records, label=label, args=args, budget=budget,
                           library_path=library_path, imports=imports, prover=prover,

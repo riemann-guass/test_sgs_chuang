@@ -51,6 +51,15 @@ phase27 把装置修到"能跑"，但两件交付物还缺：
 `partial: false` 表示整轮跑完）。第一次修复后重跑在**末尾写报告那一行**崩过
 （漏 `import os`），那次结果因此没落盘——这正是本轮把报告改成逐题落盘的原因。
 
+第 3 次运行（正式）的配置与成本实测：`--k 4 --library none --imports Mathlib`，
+**约 15 分钟/题**（每题 2–4 个 Lean 批：门检+兜底 1 批、每轮求解验证各 1 批；
+每批都要重付一次 Mathlib 导入 ≈ 90–150 s）。20 题合计约 5 小时，
+这也是"子进程不常驻"这个缺口的直接代价。
+
+报告里同时记录三个口径与判定预算（`heartbeats_per_job` = 400M、
+`cheap_budget_ms` = 60 s），并注明 `partial` 状态——**逐题落盘 + `--resume`**
+让长跑被打断后可以接着跑，不必重头再来。
+
 ## P2：语料 → 标定 → 建库
 
 ### 语料：C = C1 + C2，与 D/T 零重叠
@@ -187,7 +196,36 @@ C2 = 从 Mathlib 的 `Data.{Nat,Int,List,Finset,Multiset,Real,Rat}` 各取前 20
 
 ## 现状与下一步
 
-**已完成**：P1 真模型数字；P2 的语料、标定、3 轮建库（库 31 条）；6 个真跑缺陷的修复。
+**已完成**：P2 的语料、标定、3 轮建库（库 35 条）、两臂装置检查；7 个真跑缺陷的修复。
+P1 数字仍待重跑（见下表）。
+
+### 本轮收尾时的准确状态（2026-09-26 23:30，务必按这个读）
+
+| 项 | 状态 |
+|---|---|
+| P2 交付物（语料 / 标定 / 库 / 两臂装置检查） | ✅ 已提交（`3b74069`），库 35 条、两臂 14/24 篇引用 |
+| P1 数字 | ⚠️ `experiments/results/p1_dev_k4_n20.json` 目前是**跑到 9/20 被我停下的部分报告**（`partial: true`）。完整 20 题的两次运行见：`p1_dev_k4_n20_budget4m.json`（**配置有缺陷**：4M 心跳 + 3 次 SSL 装置故障）与本文档"第 2 轮"小节（修复后 20 题，但那次因末尾 `NameError` 没落盘）。**要重跑**。 |
+| 执行模型（常驻子进程） | ⚠️ **代码已写、未验证**：`SgsLean/Server.lean` 的 `serveLoop`（一次导入、跨批服务，批号唯一）+ `sgsr/verification/client.py` 的常驻协议 + `run_prover_eval.py` 整批共用一个会话 + `prove.py`/`Prover.session()`。设计上把"每批一次 Mathlib 导入"降为"每个会话一次"，但**冒烟测试被中断，尚未跑通**。 |
+
+**恢复后的第一条命令**（先验证常驻协议，再重跑 P1）：
+
+```powershell
+cd D:\bianma\code\大创\sgs-reap
+$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"
+$py = "C:\Users\gaosen\anaconda3\python.exe"
+# ① 常驻协议冒烟：一个会话跑 3 批，只有第一批应包含 Mathlib 导入
+& $py scripts\run_server_smoke.py
+# ② 逐批计时（可选，直接看"首批慢、后续批秒回"）
+#    见 phase28 日志"执行模型"一节的三批计时脚本
+# ③ 真代理起在有网络权限的进程里，然后重跑 P1（现在是"整批一个会话"）
+& $py sgsr\models\proxy.py --port 8770
+& $py scripts\run_prover_eval.py --set D --k 4 --limit 20 --library none --resume `
+      --out experiments\results\p1_dev_k4_n20.json
+```
+
+若 ① 不过：先 `git revert` 常驻协议那一个提交（或把 `SgsLean/Server.lean` 的片段改回
+`runJob` 逐作业 command 版本），回到 `3b74069` 的已验证状态再排查——
+**不要**在未验证的执行模型上跑长实验（这一轮的教训）。
 
 **下一步（按性价比）**：
 

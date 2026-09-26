@@ -255,22 +255,22 @@
     {
       "name": "复用测量：按不同目标去重（t1 两篇只算 1）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
+      "detail": "{'sgs_lem_a': {'t3', 't1'}, 'sgs_lem_b': {'t3'}}"
     },
     {
       "name": "复用测量：失败证明里的引用不算复用（t2 不在集合里）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
+      "detail": "{'sgs_lem_a': {'t3', 't1'}, 'sgs_lem_b': {'t3'}}"
     },
     {
       "name": "复用测量：点号全名按叶子名计数（SgsLean.sgs_lem_a 也算）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
+      "detail": "{'sgs_lem_a': {'t3', 't1'}, 'sgs_lem_b': {'t3'}}"
     },
     {
       "name": "复用测量：只被 1 个目标引用的引理 reuse=1",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t1', 't3'}, 'sgs_lem_b': {'t3'}}"
+      "detail": "{'sgs_lem_a': {'t3', 't1'}, 'sgs_lem_b': {'t3'}}"
     },
     {
       "name": "复用落盘：reuse 与 reuse_targets 写进库文件（淘汰/检索都靠它）",

@@ -67,15 +67,15 @@ class LeanServerError(RuntimeError):
 #
 # 需要更紧/更松的预算时用 `SGSLEAN_HEARTBEATS` 显式指定（`diagnose_exceptions.py`
 # 就是这么把"预算掐死"与"真判定"分开的）。
-HEARTBEATS_PER_JOB = 400_000_000
+#: **0 = 不限制**。子进程现在跨批常驻（见 `SgsLean/Server.lean` 的 `serveLoop`），
+#: 整条服务循环跑在**一个 command** 里，按 command 累计的额度会把后面的批次掐死。
+#: 于是回到上游 SGS 的配置：`maxHeartbeats 0` + 每条 tactic 的墙钟 `reap.timeout`
+#: （默认 200 s）作为真正的上界。需要显式封顶时用 `SGSLEAN_HEARTBEATS` 指定。
+HEARTBEATS_PER_JOB = 0
 
 
 def budget_for_jobs(n_jobs: int = 0) -> int:  # noqa: ARG001 - 参数保留兼容旧调用点
-    """单条作业的心跳预算。
-
-    参数 `n_jobs` **不再影响结果**：每个作业跑在自己的 command 里，预算逐条独立，
-    按批大小放大只会让"报告里的预算"失去意义。保留参数是为了不动各脚本的调用点。
-    """
+    """心跳预算（0 = 不限制，靠墙钟兜底）。参数 `n_jobs` 保留只为兼容旧调用点。"""
     return HEARTBEATS_PER_JOB
 
 
@@ -108,6 +108,9 @@ class LeanServer:
         self._stderr_file = None
         self.frontend_ms_total = 0
         self.batch_count = 0
+        #: 常驻协议里的批号（单调递增，唯一）；每个批次的响应写进 `out.<n>.json`。
+        self._batch_seq = 0
+        self._workdir_path = Path(workdir)
 
     # ---- 生命周期 ----
     def start(self) -> "LeanServer":
@@ -125,6 +128,20 @@ class LeanServer:
         if self.stderr_path is not None:
             self.stderr_path.parent.mkdir(parents=True, exist_ok=True)
             self._stderr_file = open(self.stderr_path, "w", encoding="utf-8")
+        # 复用同一个工作目录时要清掉上一轮的协议残留：`served.txt` 会让子进程认为
+        # 第 1..k 批已经处理过（**这正是 phase26 的第三个坑**）。
+        self._workdir_path.mkdir(parents=True, exist_ok=True)
+        for name in ("request.json", "served.txt", "stop.flag"):
+            try:
+                (self._workdir_path / name).unlink()
+            except OSError:
+                pass
+        for stale in self._workdir_path.glob("out.*.json"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+        self._batch_seq = 0
         self.proc = subprocess.Popen(
             [LAKE, "exe", "sgslean-server"],
             cwd=str(SGSLEAN),
@@ -143,9 +160,14 @@ class LeanServer:
         if self.proc is None:
             return
         try:
+            # 先请子进程自己退出（`stop.flag`），再等它；超时才强杀。
+            try:
+                (self._workdir_path / "stop.flag").write_text("stop", encoding="utf-8")
+            except OSError:
+                pass
             if self.proc.stdin is not None:
                 self.proc.stdin.close()
-            self.proc.wait(timeout=120)
+            self.proc.wait(timeout=60)
         except (subprocess.TimeoutExpired, ValueError, OSError):
             self.proc.kill()
         finally:
@@ -161,63 +183,67 @@ class LeanServer:
 
     # ---- 请求 ----
     def batch(self, jobs: list[dict], timeout: float = 7200.0) -> dict[str, dict]:
-        """提交一批作业并等回响应。返回 `{id: 响应}`（含 flush 那条）。"""
-        if self.proc is None or self.proc.stdin is None or self.proc.stdout is None:
-            raise LeanServerError("server 未启动")
-        flush_id = f"__flush__{int(time.time() * 1000)}"
-        lines = [json.dumps(job, ensure_ascii=False) for job in jobs]
-        lines.append(json.dumps({"id": flush_id, "cmd": "flush"}))
-        payload = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        try:
-            self.proc.stdin.write(payload)
-            self.proc.stdin.flush()
-        except (BrokenPipeError, OSError) as exc:
-            raise LeanServerError(f"写入 server 失败（子进程可能已退出）：{exc}") from exc
+        """提交一批作业并等回响应 → `{id: 响应}`。**同一进程内跨批复用**（见 `serveLoop`）。
 
-        responses: dict[str, dict] = {}
-        expected = len(jobs) + 1
-        # **按收到的行数**判断收齐，而不是按响应字典的条数：字典长度在"服务端把同一个 id
-        # 回了两次"时会永远到不了 expected，于是这里会一直阻塞到 `timeout`（默认 2 小时）
-        # 才报超时——现象是"批处理卡死"，而不是"丢了一条响应"。phase26 记的
-        # "没有解释的丢响应"很可能就是这个形态。
-        lines_read = 0
-        while lines_read < expected:
+        协议三件套：
+
+        1. 父进程把 `{"batch": n, "jobs": [...]}` **原子替换**进 `request.json`（n 单调递增）；
+        2. 子进程把第 n 批的响应**逐条增量**写进 `out.<n>.json`；
+        3. 完成判据 = 该文件的响应条数 ≥ 作业数 —— 不看退出码、不看"标记文件"
+           （phase26 的坑：父等退出码、子等标记 → 死锁；空 out 文件被当成结果；
+           残留标记被当成"本批已完成"；子进程比 `jobs.json` 还快 → 读到旧内容。
+           **批号唯一 ⟹ 文件名唯一**，这四条一次消掉）。
+
+        实测收益：Mathlib 导入从"每批一次（75–150 s）"变成"每个会话一次"，
+        20 题批量评测的固定成本从约 1 小时降到约 2 分钟。
+        """
+        if self.proc is None:
+            raise LeanServerError("server 未启动")
+        if self.proc.poll() is not None:
+            raise LeanServerError(
+                f"server 已退出（exit={self.proc.returncode}）；stderr 见 {self.stderr_path}"
+            )
+        self._batch_seq += 1
+        seq = self._batch_seq
+        tmp_path = self._workdir_path / "request.tmp"
+        tmp_path.write_text(
+            json.dumps({"batch": seq, "jobs": jobs}, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp_path, self._workdir_path / "request.json")
+        out_path = self._workdir_path / f"out.{seq}.json"
+        started = time.perf_counter()
+        payload: list | None = None
+        while payload is None:
             if time.perf_counter() - started > timeout:
                 raise LeanServerError(
-                    f"等待响应超时（{timeout}s，已收到 {lines_read}/{expected} 行）"
+                    f"等待第 {seq} 批响应超时（{timeout}s，作业 {len(jobs)} 条）；"
+                    f"工作目录 {self._workdir_path}"
                 )
-            line = self.proc.stdout.readline()
-            if line == "":
+            if self.proc.poll() is not None:
                 raise LeanServerError(
-                    f"server 在返回全部响应前关闭（收到 {lines_read}/{expected} 行）；"
-                    f"stderr 见 {self.stderr_path}"
+                    f"server 在处理第 {seq} 批时退出（exit={self.proc.returncode}）；"
+                    f"stderr 见 {self.stderr_path}，child.log 见 {self._workdir_path}"
                 )
-            line = line.strip()
-            if not line:
-                continue
-            lines_read += 1
             try:
-                item = json.loads(line)  # 协议纯度：每一行都必须是 JSON
-            except ValueError as exc:
-                raise LeanServerError(f"server 回了非 JSON 行：{line[:200]!r}") from exc
+                data = json.loads(out_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = None
+            if isinstance(data, list) and len(data) >= len(jobs):
+                payload = data[: len(jobs)]
+            else:
+                time.sleep(0.05)
+        # 前端耗时口径：父进程等待每批响应的墙钟之和（首批含 Mathlib 导入）。
+        self.frontend_ms_total += int((time.perf_counter() - started) * 1000)
+        responses: dict[str, dict] = {}
+        for item in payload:
             rid = str(item.get("id"))
             if rid in responses:
-                raise LeanServerError(
-                    f"server 重复回了 id={rid} 的响应（协议违规）；已收到 {lines_read}/{expected} 行"
-                )
+                raise LeanServerError(f"server 重复回了 id={rid} 的响应（协议违规）")
             responses[rid] = item
-            if rid == flush_id:
-                self.frontend_ms_total += int((item.get("result") or {}).get("frontend_ms", 0) or 0)
         missing = [str(job.get("id")) for job in jobs if str(job.get("id")) not in responses]
         if missing:
             # 少回一条 = 协议错误，必须当场炸：静默让调用方把"响应缺失"当成
             # "这条候选不成立"，正好是审计最反对的那类失真。
-            raise LeanServerError(
-                f"server 少回了 {len(missing)} 条响应（例如 {missing[:3]}）"
-            )
-        if flush_id not in responses:
-            raise LeanServerError("server 没有回 flush 响应：无法确认本批已结束")
+            raise LeanServerError(f"server 少回了 {len(missing)} 条响应（例如 {missing[:3]}）")
         self.batch_count += 1
         return responses
 
@@ -292,9 +318,21 @@ def preflight_imports(imports: str, probe_stmt: str = "True",
     try:
         with LeanServer(imports=imports, heartbeats=budget_for_jobs(1),
                         stderr_path=stderr_path) as server:
-            response = server.batch([{"id": "pf", "cmd": "check", "stmt": probe_stmt}])
+            return preflight_in_session(server, probe_stmt)
     except (LeanServerError, OSError) as exc:
         return False, f"预检进程失败：{type(exc).__name__}: {exc}"
+
+
+def preflight_in_session(server: "LeanServer", probe_stmt: str = "True") -> tuple[bool, str]:
+    """在**已经开好的会话**里做环境预检（省掉一次 Mathlib 导入）。
+
+    子进程常驻之后，一次会话可以服务整批实验，所以预检也该在同一会话里做——
+    否则"预检 1 次导入 + 实验 N 次导入"里那次预检显得很贵。
+    """
+    try:
+        response = server.batch([{"id": "pf", "cmd": "check", "stmt": probe_stmt}])
+    except (LeanServerError, OSError) as exc:
+        return False, f"预检失败：{type(exc).__name__}: {exc}"
     entry = response.get("pf") or {}
     if entry.get("error"):
         return False, f"预检协议错误：{json.dumps(entry['error'], ensure_ascii=False)[:300]}"

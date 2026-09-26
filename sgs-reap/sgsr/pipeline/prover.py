@@ -372,7 +372,23 @@ class Prover:
         )
 
     # ---- 九步主线 ----
-    def prove(self, stmt: str, budget: Budget | None = None) -> ProofResult:
+    def session(self):
+        """开一个 Lean 会话（`LeanServer` 上下文管理器）。
+
+        批量评测应当**复用同一个会话**：子进程现在跨批常驻（`SgsLean/Server.lean` 的
+        `serveLoop`），一次导入 Mathlib 就能服务整批题目；每题各开一个会话会把
+        导入按题数重复付掉（实测 20 题 5 小时 → 复用后 2 分钟级）。
+        """
+        return self._lean()
+
+    def prove(self, stmt: str, budget: Budget | None = None, lean=None) -> ProofResult:
+        """九步主线。`lean` 给出时复用该会话（批量评测走这条），否则自开一个。"""
+        if lean is not None:
+            return self._prove_in(stmt, budget or Budget(), lean)
+        with self._lean() as session:
+            return self._prove_in(stmt, budget or Budget(), session)
+
+    def _prove_in(self, stmt: str, budget: Budget, lean) -> ProofResult:
         budget = budget or Budget()
         started = time.perf_counter()
         parsed = self.parse_input(stmt)
@@ -397,176 +413,174 @@ class Prover:
         lean_ms = 0
         model_calls = 0
 
-        with self._lean() as lean:
-            # ②③ 门检 + 廉价兜底：一批作业一起做（导入是最贵的固定成本）
-            before = lean.frontend_ms_total
-            jobs = [{"id": "gate", "cmd": "check", "stmt": text}]
-            if not CHEAP_DISABLED:
-                jobs.append({"id": "cheap", "cmd": "cheap_verify", "stmt": text})
-                # `cheap_verify` = 先试三批廉价 tactic，命中就**当场**把命中的那条
-                # tactic 送去内核终检，返回 `{cheap, verify}`。
-                #
-                # 为什么不是"把 verify 一起塞进这一批"：批是在知道命中哪条 tactic
-                # **之前**发出去的，那时唯一的证法只有空串 `proof=""`（恒 parse_error）。
-                # 旧实现正是这么写的，于是命中结果被自己的判定否掉、兜底彻底失效——
-                # 实测 `cheap` 报 `hit=true, tactic=simp`，而 `verify(proof="")` 报
-                # `ok=false, reason=parse_error`。判定必须发生在拿到 tactic 之后。
-            responses = lean.batch(jobs)
-            lean_ms += lean.frontend_ms_total - before
-            gate_response = responses.get("gate") or {}
-            gate = gate_response.get("result") or {}
-            if gate.get("ok") is not True:
-                # 门检没通过时 `result` 可能是空的（协议错误），此时用 `error.code`；
-                # 两者都没有才算 `unknown`。**不要**把协议错误写成"输入不合法"——
-                # 审计指出旧代码在这条路径上记的是恒定的 "gate: unknown"，无法定位。
-                reason = (gate.get("reason")
-                          or (gate_response.get("error") or {}).get("code")
-                          or "unknown")
-                detail = (gate.get("detail")
-                          or (gate_response.get("error") or {}).get("message") or "")
-                result.notes.append(f"gate: {reason}" + (f" — {detail[:200]}" if detail else ""))
-                # 输入/语句问题**不计入解出率的分母**（规格 3.1 的失败处理）：
-                # 用 `path="gate_rejected"` 标出来，让评测脚本能把它单列。
-                result.path = "gate_rejected"
-                result.lean_ms = lean_ms
-                result.wall_ms = int((time.perf_counter() - started) * 1000)
-                return result
-            # `cheap_verify` 的 `result` 是 `{"cheap": …, "verify": …}` 两层结构：
-            # 外层是这条命令的响应体，内层才是廉价兜底的结果与**对命中的那条 tactic**
-            # 的终检结果。别把外壳当结果用（实测：外壳上取 `hit` 恒为 None，
-            # 兜底会静默失效、直接掉进模型路径）。
-            payload_result = (responses.get("cheap") or {}).get("result") or {}
-            cheap = payload_result.get("cheap") or {}
-            cheap_verify = payload_result.get("verify") or {}
-            if CHEAP_DISABLED:
-                result.notes.append("cheap: 已被 --no-cheap 关闭")
-            else:
-                if not payload_result and (responses.get("cheap") or {}).get("error"):
-                    # 老服务端不认识 `cheap_verify`：退回两步式（多付一次导入，
-                    # 但"命中的脚本必须过终检"这条不变量在任何服务端上都成立）。
-                    cheap, cheap_verify, attempt = self._cheap_two_step(lean, text)
-                    if attempt is not None:
-                        result.attempts.append(attempt)
-                        if attempt.ok:
-                            result.solved = True
-                            result.proof = attempt.proof
-                            result.path = "cheap"
-                            result.lean_ms = lean.frontend_ms_total
-                            result.wall_ms = int((time.perf_counter() - started) * 1000)
-                            return result
-                if cheap.get("hit") is True and cheap.get("proof"):
-                    candidate = str(cheap["proof"])
-                    # 兜底候选取同样的放行口：**必须过内核终检**才能进 proof 字段。
-                    # 判定来自 `cheap_verify` 里对**这条** tactic 的 verify 结果。
-                    attempt = self._judge({"result": cheap_verify}, candidate, "cheap", 0)
+        # ②③ 门检 + 廉价兜底：一批作业一起做（导入是最贵的固定成本）
+        before = lean.frontend_ms_total
+        jobs = [{"id": "gate", "cmd": "check", "stmt": text}]
+        if not CHEAP_DISABLED:
+            jobs.append({"id": "cheap", "cmd": "cheap_verify", "stmt": text})
+            # `cheap_verify` = 先试三批廉价 tactic，命中就**当场**把命中的那条
+            # tactic 送去内核终检，返回 `{cheap, verify}`。
+            #
+            # 为什么不是"把 verify 一起塞进这一批"：批是在知道命中哪条 tactic
+            # **之前**发出去的，那时唯一的证法只有空串 `proof=""`（恒 parse_error）。
+            # 旧实现正是这么写的，于是命中结果被自己的判定否掉、兜底彻底失效——
+            # 实测 `cheap` 报 `hit=true, tactic=simp`，而 `verify(proof="")` 报
+            # `ok=false, reason=parse_error`。判定必须发生在拿到 tactic 之后。
+        responses = lean.batch(jobs)
+        lean_ms += lean.frontend_ms_total - before
+        gate_response = responses.get("gate") or {}
+        gate = gate_response.get("result") or {}
+        if gate.get("ok") is not True:
+            # 门检没通过时 `result` 可能是空的（协议错误），此时用 `error.code`；
+            # 两者都没有才算 `unknown`。**不要**把协议错误写成"输入不合法"——
+            # 审计指出旧代码在这条路径上记的是恒定的 "gate: unknown"，无法定位。
+            reason = (gate.get("reason")
+                      or (gate_response.get("error") or {}).get("code")
+                      or "unknown")
+            detail = (gate.get("detail")
+                      or (gate_response.get("error") or {}).get("message") or "")
+            result.notes.append(f"gate: {reason}" + (f" — {detail[:200]}" if detail else ""))
+            # 输入/语句问题**不计入解出率的分母**（规格 3.1 的失败处理）：
+            # 用 `path="gate_rejected"` 标出来，让评测脚本能把它单列。
+            result.path = "gate_rejected"
+            result.lean_ms = lean_ms
+            result.wall_ms = int((time.perf_counter() - started) * 1000)
+            return result
+        # `cheap_verify` 的 `result` 是 `{"cheap": …, "verify": …}` 两层结构：
+        # 外层是这条命令的响应体，内层才是廉价兜底的结果与**对命中的那条 tactic**
+        # 的终检结果。别把外壳当结果用（实测：外壳上取 `hit` 恒为 None，
+        # 兜底会静默失效、直接掉进模型路径）。
+        payload_result = (responses.get("cheap") or {}).get("result") or {}
+        cheap = payload_result.get("cheap") or {}
+        cheap_verify = payload_result.get("verify") or {}
+        if CHEAP_DISABLED:
+            result.notes.append("cheap: 已被 --no-cheap 关闭")
+        else:
+            if not payload_result and (responses.get("cheap") or {}).get("error"):
+                # 老服务端不认识 `cheap_verify`：退回两步式（多付一次导入，
+                # 但"命中的脚本必须过终检"这条不变量在任何服务端上都成立）。
+                cheap, cheap_verify, attempt = self._cheap_two_step(lean, text)
+                if attempt is not None:
                     result.attempts.append(attempt)
                     if attempt.ok:
                         result.solved = True
-                        result.proof = candidate
+                        result.proof = attempt.proof
                         result.path = "cheap"
-                        result.lean_ms = lean_ms
+                        result.lean_ms = lean.frontend_ms_total
                         result.wall_ms = int((time.perf_counter() - started) * 1000)
                         return result
-                    result.notes.append(
-                        f"cheap 命中 {cheap.get('tactic')} 但未过终检：{attempt.reason}"
-                    )
-                elif cheap.get("exhausted") is True:
-                    # "没试完"与"试过但都不行"是两件事：前者说明清扫被整条墙钟上限截断，
-                    # 兜底是否本来能解出是**未知**的，不能记成兜底失败。
-                    result.notes.append(
-                        f"cheap 清扫达到墙钟上限（{cheap.get('elapsedMs')} ms），未试完清单"
-                    )
-
-            # ④ 分层检索：**放到门检之后**（规格 3.4 节的顺序）。
-            # 审计指出旧实现先检索再门检——不合法/不合式的输入也会先去打一次外部检索 API，
-            # 既浪费又让"检索层"的调用统计失真。
-            retrieved = self.retrieve(text, budget.ctx_lemma_tokens)
-            result.retrieval = {
-                "premises": len(retrieved.premises),
-                "library": retrieved.library_candidates,
-                "mathlib": retrieved.mathlib_candidates,
-                "degraded": retrieved.degraded,
-                "tokens": sum(p.tokens for p in retrieved.premises),
-                "names": [p.name for p in retrieved.premises],
-                "notes": retrieved.notes,
-            }
-            prompt_library = retrieved.as_prompt_items()
-
-            # ⑤⑥⑦ 求解 → 验证 → repair（同一批会话内循环，避免重复导入）
-            spent = 0
-            failed_for_repair: list[dict] = []
-            for round_index in range(0, budget.repair_rounds + 1):
-                if spent >= budget.total_tokens:
-                    result.notes.append(f"token 预算耗尽（{spent}/{budget.total_tokens}）")
-                    break
-                source = "solve" if round_index == 0 else "repair"
-                try:
-                    if round_index == 0:
-                        proofs, meta = self.solve(text, budget.k, library=prompt_library)
-                    else:
-                        proofs, meta = self.repair(
-                            text, failed_for_repair, budget.k, library=prompt_library
-                        )
-                    model_calls += 1
-                    _add_usage(result.usage, _usage_of(meta))
-                    spent += usage_total(_usage_of(meta))
-                    if meta.get("cache_hit"):
-                        # 缓存命中是按 0 token 计费的（`Backend.chat` 不再回上一次的
-                        # usage），单列出来，免得报告里出现"0 token 的调用"却看不出原因。
-                        result.usage["cache_hits"] = int(result.usage.get("cache_hits", 0)) + 1
-                        result.notes.append(f"{source}: 命中后端缓存（本次不计费）")
-                    elif not (meta.get("usage") or {}):
-                        # 后端没回报 usage 时**必须留下痕迹**：否则成本表会显示
-                        # 0 token 的"免费证明"，而那是记账缺失，不是真的免费。
-                        result.notes.append(f"{source}: 后端未回报 usage（成本按 0 记）")
-                except (BackendUnavailable, repair_module.RepairBackendError) as exc:
-                    result.notes.append(f"backend_error: {exc}")
-                    result.attempts.append(
-                        Attempt(proof="", reason="backend_error", detail=str(exc),
-                                source=source, round_index=round_index, ok=False)
-                    )
-                    break
-                if not proofs:
-                    result.notes.append(f"{source}: 本轮没有解析出候选")
-                    break
-
-                before = lean.frontend_ms_total
-                items = [
-                    {"id": f"{source}:{round_index}:{index}", "stmt": text, "proof": proof}
-                    for index, proof in enumerate(proofs)
-                ]
-                verdicts = lean.batch(
-                    [{"id": it["id"], "cmd": "verify", "stmt": it["stmt"], "proof": it["proof"]}
-                     for it in items]
-                )
-                lean_ms += lean.frontend_ms_total - before
-
-                round_attempts: list[Attempt] = []
-                winner: str | None = None
-                for index, proof in enumerate(proofs):
-                    attempt = self._judge(
-                        verdicts.get(f"{source}:{round_index}:{index}"),
-                        proof, source, round_index,
-                    )
-                    round_attempts.append(attempt)
-                    if attempt.ok and winner is None:
-                        winner = proof
-                result.attempts.extend(round_attempts)
-                if winner is not None:
+            if cheap.get("hit") is True and cheap.get("proof"):
+                candidate = str(cheap["proof"])
+                # 兜底候选取同样的放行口：**必须过内核终检**才能进 proof 字段。
+                # 判定来自 `cheap_verify` 里对**这条** tactic 的 verify 结果。
+                attempt = self._judge({"result": cheap_verify}, candidate, "cheap", 0)
+                result.attempts.append(attempt)
+                if attempt.ok:
                     result.solved = True
-                    result.proof = winner
-                    result.path = source
-                    break
-                failed_for_repair = [
-                    {"proof": a.proof, "reason": a.reason, "detail": a.detail}
-                    for a in round_attempts
-                ]
+                    result.proof = candidate
+                    result.path = "cheap"
+                    result.lean_ms = lean_ms
+                    result.wall_ms = int((time.perf_counter() - started) * 1000)
+                    return result
                 result.notes.append(
-                    f"{source}: 第 {round_index} 轮 {len(proofs)} 篇全部未通过，"
-                    f"失败码 {repair_module.error_summary(failed_for_repair)}"
+                    f"cheap 命中 {cheap.get('tactic')} 但未过终检：{attempt.reason}"
                 )
-                if round_index >= budget.repair_rounds:
-                    result.notes.append(f"repair 轮数达上限 R={budget.repair_rounds}")
+            elif cheap.get("exhausted") is True:
+                # "没试完"与"试过但都不行"是两件事：前者说明清扫被整条墙钟上限截断，
+                # 兜底是否本来能解出是**未知**的，不能记成兜底失败。
+                result.notes.append(
+                    f"cheap 清扫达到墙钟上限（{cheap.get('elapsedMs')} ms），未试完清单"
+                )
+        # ④ 分层检索：**放到门检之后**（规格 3.4 节的顺序）。
+        # 审计指出旧实现先检索再门检——不合法/不合式的输入也会先去打一次外部检索 API，
+        # 既浪费又让"检索层"的调用统计失真。
+        retrieved = self.retrieve(text, budget.ctx_lemma_tokens)
+        result.retrieval = {
+            "premises": len(retrieved.premises),
+            "library": retrieved.library_candidates,
+            "mathlib": retrieved.mathlib_candidates,
+            "degraded": retrieved.degraded,
+            "tokens": sum(p.tokens for p in retrieved.premises),
+            "names": [p.name for p in retrieved.premises],
+            "notes": retrieved.notes,
+        }
+        prompt_library = retrieved.as_prompt_items()
+
+        # ⑤⑥⑦ 求解 → 验证 → repair（同一批会话内循环，避免重复导入）
+        spent = 0
+        failed_for_repair: list[dict] = []
+        for round_index in range(0, budget.repair_rounds + 1):
+            if spent >= budget.total_tokens:
+                result.notes.append(f"token 预算耗尽（{spent}/{budget.total_tokens}）")
+                break
+            source = "solve" if round_index == 0 else "repair"
+            try:
+                if round_index == 0:
+                    proofs, meta = self.solve(text, budget.k, library=prompt_library)
+                else:
+                    proofs, meta = self.repair(
+                        text, failed_for_repair, budget.k, library=prompt_library
+                    )
+                model_calls += 1
+                _add_usage(result.usage, _usage_of(meta))
+                spent += usage_total(_usage_of(meta))
+                if meta.get("cache_hit"):
+                    # 缓存命中是按 0 token 计费的（`Backend.chat` 不再回上一次的
+                    # usage），单列出来，免得报告里出现"0 token 的调用"却看不出原因。
+                    result.usage["cache_hits"] = int(result.usage.get("cache_hits", 0)) + 1
+                    result.notes.append(f"{source}: 命中后端缓存（本次不计费）")
+                elif not (meta.get("usage") or {}):
+                    # 后端没回报 usage 时**必须留下痕迹**：否则成本表会显示
+                    # 0 token 的"免费证明"，而那是记账缺失，不是真的免费。
+                    result.notes.append(f"{source}: 后端未回报 usage（成本按 0 记）")
+            except (BackendUnavailable, repair_module.RepairBackendError) as exc:
+                result.notes.append(f"backend_error: {exc}")
+                result.attempts.append(
+                    Attempt(proof="", reason="backend_error", detail=str(exc),
+                            source=source, round_index=round_index, ok=False)
+                )
+                break
+            if not proofs:
+                result.notes.append(f"{source}: 本轮没有解析出候选")
+                break
+
+            before = lean.frontend_ms_total
+            items = [
+                {"id": f"{source}:{round_index}:{index}", "stmt": text, "proof": proof}
+                for index, proof in enumerate(proofs)
+            ]
+            verdicts = lean.batch(
+                [{"id": it["id"], "cmd": "verify", "stmt": it["stmt"], "proof": it["proof"]}
+                 for it in items]
+            )
+            lean_ms += lean.frontend_ms_total - before
+
+            round_attempts: list[Attempt] = []
+            winner: str | None = None
+            for index, proof in enumerate(proofs):
+                attempt = self._judge(
+                    verdicts.get(f"{source}:{round_index}:{index}"),
+                    proof, source, round_index,
+                )
+                round_attempts.append(attempt)
+                if attempt.ok and winner is None:
+                    winner = proof
+            result.attempts.extend(round_attempts)
+            if winner is not None:
+                result.solved = True
+                result.proof = winner
+                result.path = source
+                break
+            failed_for_repair = [
+                {"proof": a.proof, "reason": a.reason, "detail": a.detail}
+                for a in round_attempts
+            ]
+            result.notes.append(
+                f"{source}: 第 {round_index} 轮 {len(proofs)} 篇全部未通过，"
+                f"失败码 {repair_module.error_summary(failed_for_repair)}"
+            )
+            if round_index >= budget.repair_rounds:
+                result.notes.append(f"repair 轮数达上限 R={budget.repair_rounds}")
 
         result.usage["model_calls"] = model_calls
         result.lean_ms = lean_ms
