@@ -40,8 +40,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SGSLEAN = ROOT / "sgslean"
 sys.path.insert(0, str(ROOT))
 
-from sgsr.data.schema import candidate_id, target_of, validate_trace  # noqa: E402
-from sgsr.pipeline.coverage import (  # noqa: E402
+from sgsr.data import candidate_id, target_of, validate_trace  # noqa: E402
+from sgsr.pipeline.selection import (  # noqa: E402
     evict,
     exploration_admission,
     reuse_cost_greedy,
@@ -482,7 +482,67 @@ def test_prover_module_api() -> None:
           close_declaration("example : True := by trivial") == "True")
 
 
+def test_prompt_blocks() -> None:
+    """提示词的区块开关（吸收自旧 `scripts/test_prompts.py`，不联网、不花钱）。
+
+    mock 服务不构造提示词，所以"需求条件化到底进没进提示词"只能在纯函数上断言。
+    最关键的一条：**空需求必须等于没有需求**——H1 的对照是"同预算、同模型，只去掉
+    需求条件化"，若 `demand=[]` 仍渲染出占位区块，对照就不干净。
+    """
+    from sgsr.models import prompts
+
+    goal = "n : ℕ\n⊢ 2 ∣ n ^ 2 + n"
+    premise, proof = "n : ℕ ⊢ 2 ∣ n * (n + 1)", "n : ℕ ⊢ n % 2 = 0 ∨ n % 2 = 1"
+    with_demand = prompts.conjecture_prompt(goal, 3, demand=[premise, proof])
+    no_demand = prompts.conjecture_prompt(goal, 3)
+    empty_demand = prompts.conjecture_prompt(goal, 3, demand=[])
+    check("提示词：有需求时出现 BACKGROUND EVIDENCE 区块",
+          "BACKGROUND EVIDENCE" in with_demand)
+    check("提示词：每条需求签名都出现在提示词里",
+          all(sig in with_demand for sig in (premise, proof)))
+    check("提示词：明确禁止把证据当答案输出", "Do NOT output these subgoals" in with_demand)
+    check("提示词：demand=[] 与不传等价（H1 对照必须干净）",
+          no_demand == empty_demand and "BACKGROUND EVIDENCE" not in empty_demand)
+    check("提示词：符号相关性约束始终存在",
+          "MUST mention at least one symbol" in no_demand)
+    with_seeds = prompts.conjecture_prompt(goal, 3, seeds=["∀ (n : ℕ), n + 0 = n"])
+    check("提示词：有范例时出现 LIBRARY EXCERPTS 且无范例时不出现",
+          "LIBRARY EXCERPTS" in with_seeds and "LIBRARY EXCERPTS" not in no_demand)
+
+
 # ─────────────────────── B 组：需要 Lean 的端到端 ───────────────────────
+
+
+def test_lean_session_reuse() -> None:
+    """**常驻会话**：一个 `LeanServer` 里连发多批，子进程不许每批重启。
+
+    这是 phase28 遗留的最大工程缺口（每批重付一次 Mathlib 导入，实测 67–493 s）。
+    U1 把 `Server.lean` 收敛成唯一一条常驻路径后，这条断言就是它的守门人：
+    批号必须递增、第二批必须复用同一个进程。用 `imports=none` 跑，秒级。
+    """
+    from sgsr.lean import LeanServer
+
+    try:
+        with LeanServer(imports="none",
+                        stderr_path=RESULTS_DIR / "closure_test_stderr.log") as server:
+            first = server.batch([{"id": "s1", "cmd": "ping"}])
+            second = server.batch([{"id": "s2", "cmd": "ping"}])
+            third = server.batch([{"id": "s3", "cmd": "verify",
+                                   "stmt": "∀ (n : Nat), n + 0 = n",
+                                   "proof": "intro n\nrfl"}])
+        check("常驻会话：同一进程连发 3 批都拿到响应",
+              bool(first.get("s1")) and bool(second.get("s2")) and bool(third.get("s3")),
+              f"{first} / {second} / {third}")
+        check("常驻会话：批号递增到 3（不是每批新起进程）",
+              server.batch_count == 3, f"batch_count={server.batch_count}")
+        check("常驻会话：第二批的 `importedModules` 与首批一致（没有重新导入）",
+              (first["s1"].get("result") or {}).get("importedModules")
+              == (second["s2"].get("result") or {}).get("importedModules"),
+              f"{first['s1'].get('result')} vs {second['s2'].get('result')}")
+        check("常驻会话：第三批的内核判定仍然判对",
+              (third["s3"].get("result") or {}).get("ok") is True, f"{third['s3']}")
+    except Exception as exc:  # noqa: BLE001 - 任何异常都算这条失败
+        check("常驻会话：三批共用同一个 Lean 进程", False, f"{type(exc).__name__}: {exc}")
 
 
 def test_materialize_round_trip() -> None:
@@ -491,7 +551,7 @@ def test_materialize_round_trip() -> None:
     审计 P0 第 4 条：旧闭环只调 `materialize` 不编译、不检查返回，
     下一轮的 `import` 必然失败（表现成"库没用"）。这里把整条路走通并断言编译成功。
     """
-    from sgsr.verification.client import LeanServer
+    from sgsr.lean import LeanServer
 
     generated = SGSLEAN / "SgsLean" / "GeneratedLibrary.lean"
     backup = generated.read_text(encoding="utf-8") if generated.exists() else None
@@ -536,6 +596,8 @@ RESULTS_DIR = ROOT / "experiments" / "results"
 def main() -> int:
     parser = argparse.ArgumentParser(description="闭环核心协议测试")
     parser.add_argument("--no-lean", action="store_true", help="只跑纯 Python 的 A 组")
+    parser.add_argument("--skip-materialize", action="store_true",
+                        help="B 组只跑常驻会话（秒级），跳过要 Mathlib 的物化往返")
     args = parser.parse_args()
 
     print("=== A 组：纯 Python（协议、身份、守卫、解析、选择）===")
@@ -551,10 +613,13 @@ def main() -> int:
     test_reuse_measurement()
     test_reuse_persistence(scratch_dir("reuse_persist"))
     test_prover_module_api()
+    test_prompt_blocks()
 
     if not args.no_lean:
-        print("=== B 组：需要 Lean（物化 → 编译 → import 往返）===")
-        test_materialize_round_trip()
+        print("=== B 组：需要 Lean（常驻会话 + 物化 → 编译 → import 往返）===")
+        test_lean_session_reuse()
+        if not args.skip_materialize:
+            test_materialize_round_trip()
 
     failed = [name for name, ok, _ in RESULTS if not ok]
     print()

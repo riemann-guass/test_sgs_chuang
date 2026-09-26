@@ -1,5 +1,5 @@
 {
-  "passed": 60,
+  "passed": 70,
   "failed": [],
   "checks": [
     {
@@ -301,6 +301,56 @@
       "name": "闭包：无绑定变量时原样返回",
       "ok": true,
       "detail": ""
+    },
+    {
+      "name": "提示词：有需求时出现 BACKGROUND EVIDENCE 区块",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "提示词：每条需求签名都出现在提示词里",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "提示词：明确禁止把证据当答案输出",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "提示词：demand=[] 与不传等价（H1 对照必须干净）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "提示词：符号相关性约束始终存在",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "提示词：有范例时出现 LIBRARY EXCERPTS 且无范例时不出现",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "常驻会话：同一进程连发 3 批都拿到响应",
+      "ok": true,
+      "detail": "{'s1': {'id': 's1', 'ok': True, 'result': {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}}} / {'s2': {'id': 's2', 'ok': True, 'result': {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}}} / {'s3': {'id': 's3', 'ok': True, 'result': {'detail': '', 'finalChecked': True, 'gateOk': True, 'goalsLeft': 0, 'ok': True, 'reason': 'ok', 'stmt': '∀ (n : Nat), n + 0 = n'}}}"
+    },
+    {
+      "name": "常驻会话：批号递增到 3（不是每批新起进程）",
+      "ok": true,
+      "detail": "batch_count=3"
+    },
+    {
+      "name": "常驻会话：第二批的 `importedModules` 与首批一致（没有重新导入）",
+      "ok": true,
+      "detail": "{'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'} vs {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}"
+    },
+    {
+      "name": "常驻会话：第三批的内核判定仍然判对",
+      "ok": true,
+      "detail": "{'id': 's3', 'ok': True, 'result': {'detail': '', 'finalChecked': True, 'gateOk': True, 'goalsLeft': 0, 'ok': True, 'reason': 'ok', 'stmt': '∀ (n : Nat), n + 0 = n'}}"
     }
   ]
 }

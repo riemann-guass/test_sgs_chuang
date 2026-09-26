@@ -59,6 +59,9 @@ sgs-reap/reap-fork/e2e_raw_tree.json
 
 # ---- 数据（是输入，不是实验产物：必须入库）----
 !sgs-reap/data/*.jsonl
+# 例外中的例外：难度分档清单**是派生文件**（`run_prover_eval.py --tier-out` 一条命令重建），
+# 不入库——2026-09-27 的精简把"派生数据直接进仓库"列为要防的膨胀形态之一。
+sgs-reap/data/*__*.jsonl
 # 引理库与它的版本快照**必须入库**：硬约束 6 要求"正式数字能由 experiments/results/ 回溯"，
 # 而回溯一个库相关的数字必须能拿到当时那个库。上面的 `*.jsonl` 是给逐条轨迹（可再生产物）写的，
 # 它同时吞掉了 `experiments/library*.jsonl`（审计的"可复现性风险"一节）。

@@ -22,10 +22,11 @@ import time
 from itertools import count
 from pathlib import Path
 
-# 本文件在 `sgsr/verification/` 下，仓库根要往上三层：
-# client.py → verification/ → sgsr/ → sgs-reap/（重构时这里踩过一次：parents[1] 会指到 sgsr/，
-# 表现为 `NotADirectoryError: [WinError 267]`——因为 cwd 被指向一个不存在的目录）
-ROOT = Path(__file__).resolve().parents[2]
+# 本文件在 `sgsr/` 下，仓库根（sgs-reap/）往上两层：
+# lean.py → sgsr/ → sgs-reap/。
+# 这个数字随文件位置改过两次（每次移动都要改），表现都是"服务起不来、报告为空"：
+# 指错一层会让 `lake exe` 在一个不存在的 cwd 里跑，子进程立刻 exit=1。
+ROOT = Path(__file__).resolve().parents[1]
 SGSLEAN = ROOT / "sgslean"
 RUNS = ROOT / "experiments" / "runs"
 LAKE = os.environ.get("LAKE", "lake")
@@ -65,8 +66,8 @@ class LeanServerError(RuntimeError):
 # * 真正的上界是**墙钟**：每条约 tactic 受 `reap.timeout`（默认 200 s）约束，
 #   整批受 `batch(timeout=...)` 约束。
 #
-# 需要更紧/更松的预算时用 `SGSLEAN_HEARTBEATS` 显式指定（`diagnose_exceptions.py`
-# 就是这么把"预算掐死"与"真判定"分开的）。
+# 需要更紧/更松的预算时用 `SGSLEAN_HEARTBEATS` 显式指定（把"预算掐死"与"真判定"
+# 分开做诊断时用；注意常驻循环跑在一个 command 里，这个额度是整个会话的）。
 #: **0 = 不限制**。子进程现在跨批常驻（见 `SgsLean/Server.lean` 的 `serveLoop`），
 #: 整条服务循环跑在**一个 command** 里，按 command 累计的额度会把后面的批次掐死。
 #: 于是回到上游 SGS 的配置：`maxHeartbeats 0` + 每条 tactic 的墙钟 `reap.timeout`

@@ -1,94 +1,86 @@
-# scripts —— 实验入口
+# scripts —— 实验入口（5 个，不再增长）
 
 对应上游 SGS 的 `scripts/`：每个脚本是一个**可独立运行、自带判定准则**的实验单元。
 所有编排逻辑都在 `sgsr/` 包里，这里只做参数、流程串联与报告落盘。
 
 权威规格是 `docs/SG-Lean思路文档第二版.pdf`；本文件只说明"哪个脚本干哪件事"。
 
-## 按思路的两个时间尺度分组
+> **新能力一律做成现有入口的子命令，不新开脚本。** 2026-09-27 的精简删掉了 12 个
+> 僵尸入口（17 → 5），每一条的去处见文末"删掉的入口去了哪"。
 
-### 在线求解（证明器本体）
-
-| 脚本 | 作用 | 状态 |
-|---|---|---|
-| `prove.py` | **单题入口**：一条命题进，一篇过内核终检的证明出 | ✅ P1（phase25） |
-| `run_prover_eval.py` | 在一个数据集上批量评测，报**三个口径**的 pass@k 与成本指标（首轮 / 含 repair / 不含兜底），带环境预检 | ✅ phase27 |
-
-### 离线建库（库的建立与管理）
-
-| 脚本 | 作用 | 状态 |
-|---|---|---|
-| `run_round.py` | 闭环主入口（多轮建库）。**只接受课程集 C**，有硬守卫 | ✅ |
-| `build_library.py` | 单轮漏斗：候选 → 硬门 → 求解 → 验证 → 物化 → 入库（来源三件套强制；写不进库时判 `fail_not_written`） | ✅ phase27 |
-| `run_conjecture.py` | 出题者下游：需求 → 引理候选 → 门检（`--no-demand` 是对照） | ✅ |
-| `run_gate_g2.py` | 需求挖掘的检定（分层统计 + 四条分桶） | ✅ |
-| `calibrate_difficulty.py` | **难度标定**：一次批处理算 `cheap_hit`，一次 `/solve` 采样 + 一次批验证算 `solve_rate`，分档 easy / `unknown_cheap` / nearmiss / hard 并输出分档清单 | ✅ phase28 |
-
-### 判据与测量
-
-| 脚本 | 作用 | 状态 |
-|---|---|---|
-| `run_gate_g3_real.py` | **两臂测量**：有库／无库对照，含环境预检与引用计数。复用判据的测量基础 | ✅ |
-| `run_closure_tests.py` | **闭环核心协议测试**（60 条断言）：目标身份、`ok/verified` 字段、库来源守卫、角色守卫、`.lean` 解析、**准入/探索额度**、**复用测量与落盘**、选择与淘汰、物化往返 | ✅ phase27 |
-| `run_gate_g1.py` | 求解器能力检定（solve_rate 分布）；P2 之后由难度标定吸收 | ✅ |
-| `diagnose_exceptions.py` | 判定预算诊断：把 `exception` 样本用放大预算重测 | ✅ |
-| `run_server_smoke.py` | Lean 服务协议冒烟（`ping`/`check`/`verify`/`trace`/预算） | ✅ |
-| `run_solve_mock.py` | 离线链路：生成 → 验证 → 轨迹落盘 | ✅ |
-| `run_materialize.py` | 物化与编译校验 | ✅ |
-| `verify_lemma_refs.py` | 校验 G1 引理集里的参考证明 | ✅ |
-| `test_prompts.py` | 提示词离线单测（空需求必须等于没有需求） | ✅ |
-| `run_m1_calibration.py` | M1 标定：利用率 / token / 延迟（驱动 `reap-fork/tests/Calibrate.lean`） | ✅ |
-
-## 已删除的脚本（2026-09-21 精简）
-
-| 删除项 | 理由 |
+| 脚本 | 作用 |
 |---|---|
-| `run_e2e.py` / `run_real_e2e.py` | 测的是"把 SGS 的猜想动作做成 Lean tactic"这条路，当前思路的在线流程不使用它；结论已入 `docs/phase0..2-log.md` |
-| `run_proxy_smoke.py` | 代理冒烟，已被 `run_gate_g3_real.py` 的环境预检覆盖 |
+| `prove.py` | **单题入口**：一条命题进，一篇过内核终检的证明出 |
+| `run_prover_eval.py` | 批量评测：三个口径的 pass@k + 成本 + **难度分档**（`--tier-out`）；带环境预检与 T 的一次性守卫 |
+| `run_round.py` | 闭环主入口（多轮建库）。**只接受课程集 C**，有硬守卫；`--materialize-only` 只重建物化文件 |
+| `run_gate_g3_real.py` | **两臂测量**：有库／无库对照，含环境预检与引用计数。复用判据的测量基础 |
+| `run_closure_tests.py` | **唯一测试入口**（70 条断言）：目标身份、字段协议、库来源守卫、角色守卫、解析、准入/复用/淘汰、提示词区块、**常驻会话**、物化往返 |
 
 ## 常用命令
 
 ```powershell
 cd sgs-reap
 $py = "C:\Users\gaosen\anaconda3\python.exe"
+$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 直接跑脚本时 sgsr 包不在 sys.path 上
+
+# 自检（秒级，不用 Lean；加 --skip-materialize 还会跑常驻会话冒烟）
+& $py scripts\run_closure_tests.py --no-lean
+& $py scripts\run_closure_tests.py --skip-materialize
 
 # 离线：闭环冒烟（假服务，无 Mathlib，快）
 & $py sgsr\models\mock_server.py --port 8765
 & $py scripts\run_round.py --rounds 2 --target-limit 2 --k 1 --n 2 --imports none --expect-mock
 
 # 真跑：先起真代理（需网络权限 + sgsr\models\.env）
-$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 见下：直接跑脚本时 sgsr 包不在 sys.path 上
 & $py sgsr\models\proxy.py --port 8770
 & $py scripts\run_round.py --rounds 3 --k 2 --n 3
+
+# 单题 / 批量（批量带分档与逐题落盘）
+& $py scripts\prove.py --statement "∀ (n : Nat), n + 0 = n" --k 4
+& $py scripts\run_prover_eval.py --set D --k 4 --limit 20 --library none `
+      --out experiments\results\p1_dev_k4_n20.json --tier-out data
 
 # 两臂测量（开发集上调参；测试集冻结后只跑一次）
 & $py scripts\run_gate_g3_real.py --select nearmiss --limit 6 --k 4 --endpoint http://127.0.0.1:8770/solve
 
-# P1 完成后
-& $py scripts\prove.py --statement "forall (n : Nat), n + 0 = n" --k 4
-& $py scripts\run_prover_eval.py --set D --k 4 --out experiments\results\p1_dev.json
+# 库没变但物化文件过时
+& $py scripts\run_round.py --materialize-only
 ```
 
 > `python sgsr\models\proxy.py` 直接跑时，Python 会把**脚本所在目录**（`sgsr\models`）放进
-> `sys.path`，于是 `from sgsr.models import config` 报 `ModuleNotFoundError`。
+> `sys.path`，于是 `from sgsr import client` 报 `ModuleNotFoundError`。
 > 起服务前把仓库根加到 `PYTHONPATH`（如上），或用 `python -m sgsr.models.proxy`。
+
+## 删掉的入口去了哪（2026-09-27）
+
+| 删掉 | 去处 |
+|---|---|
+| `build_library.py` · `run_materialize.py` | 建库与物化只有一条路：`run_round.py`（后者另有 `--materialize-only`） |
+| `calibrate_difficulty.py` | `run_prover_eval.py --tier-out`（分档直接写进逐题记录与报告） |
+| `run_gate_g1.py` | `run_prover_eval.py`（求解器能力就是它的 pass@k） |
+| `run_gate_g2.py` | `run_closure_tests.py` 的需求挖掘断言（分层 + 分桶） |
+| `run_conjecture.py` | `run_round.py`（出题者本来就在离线闭环里） |
+| `run_solve_mock.py` | `run_round.py --expect-mock`（假服务模式） |
+| `run_server_smoke.py` | `run_closure_tests.py` 的常驻会话断言（协议已改成常驻，旧冒烟测的是已删掉的 stdin 路径） |
+| `diagnose_exceptions.py` | `run_prover_eval.py` 报告里的 `heartbeats_per_job` + `SGSLEAN_HEARTBEATS` 显式重测 |
+| `verify_lemma_refs.py` | `run_closure_tests.py` 的"物化 → 编译 → import 往返" |
+| `test_prompts.py` | `run_closure_tests.py` 的提示词区块断言 |
+| `run_m1_calibration.py` | 无替代（M1 标定是已被淘汰的仪器，结论留在 `docs/history/`） |
 
 ## 约定
 
 * **判定准则写在脚本里、跑之前定死**（每个脚本的文件头都有），避免事后解释。
 * 报告一律带 `mode` 与规模后缀，防止小规模重跑覆盖正式报告。
 * Lean 侧测试在 `sgslean/SgsLean/Test/` 与 `reap-fork/Reap/Test/`，用 `lake build` 跑。
-* **语料准备在 `tools/prepare_domain_corpus.py`**（不在本目录）：C1+C2 合成 `data/C.jsonl`、
-  与 D/T 做命题级同源检查、写 `data/corpus_manifest.json`（计数 + sha256 + 重叠数）。
-  D/T 只校验不重写。
+* **语料准备在 `tools/prepare_domain_corpus.py`**：C1+C2 合成 `data/C.jsonl`、与 D/T 做
+  命题级同源检查、写 `data/corpus_manifest.json`。分档清单是派生文件
+  （`data/C__{easy,nearmiss,hard}.jsonl`），由 `run_prover_eval --tier-out` 重建，**不入库**。
 
 ## 两个"只许有一份"的公共入口
 
-审计最常抓到的形态是"同一件事有 N 份实现，语义还不一样"。现在收敛成两处：
-
 | 公共入口 | 唯一实现 | 谁在用 |
 |---|---|---|
-| `sgsr/models/http.py` | 与本地服务通信的 HTTP 客户端（`post_json` 抛错 / `soft_post_json` 收错） | prover · repair · conjecture · runner · build_library · run_gate_g1/g2/g3 · run_solve_mock |
-| `sgsr/verification/client.py` | `sgslean-server` 的常驻客户端（批处理 + 环境预检 `preflight_imports`） | prove · run_prover_eval · run_round · closure_tests · build_library · run_gate_g3_real · run_server_smoke |
+| `sgsr/client.py` | 对外说话的唯一入口：HTTP（`post_json` 抛错 / `soft_post_json` 收错）+ 服务配置 + OpenAI 兼容 chat 后端 | prover · conjecture · runner · 真代理 · 各实验脚本 |
+| `sgsr/lean.py` | `sgslean-server` 的**常驻**客户端（跨批复用 + 环境预检 `preflight_imports`） | prove · run_prover_eval · run_round · closure_tests · run_gate_g3_real · tools/ |
 
-新增脚本请直接复用这两个入口；不要再写第 N 份 `http_post` / `subprocess.run([lake, exe, ...])`。
+新增能力请直接复用这两处；不要再写第 N 份 `http_post` / `subprocess.run([lake, exe, ...])`。

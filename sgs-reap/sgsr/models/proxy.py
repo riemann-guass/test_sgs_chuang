@@ -20,9 +20,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from sgsr.models import config
+from sgsr import client
 from sgsr.models import prompts
-from sgsr.models.backend import Backend, BackendError
+from sgsr.client import Backend, BackendError
 
 VERSION = "v1"
 
@@ -307,7 +307,7 @@ def build_server(host: str, port: int) -> ThreadingHTTPServer:
 
 def main() -> int:
     global BACKEND
-    config.ensure_utf8_stdout()
+    client.ensure_utf8_stdout()
     parser = argparse.ArgumentParser(description="sgs-reap 真实模型代理")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8770)

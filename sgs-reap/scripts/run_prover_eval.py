@@ -54,7 +54,7 @@ sys.path.insert(0, str(ROOT))
 
 from sgsr.pipeline.prover import Budget, Prover  # noqa: E402
 from sgsr.pipeline.prover import git_commit, library_hash, usage_total  # noqa: E402
-from sgsr.verification.client import preflight_in_session  # noqa: E402
+from sgsr.lean import preflight_in_session  # noqa: E402
 
 DATA = ROOT / "data"
 REGISTERED = {
@@ -121,9 +121,57 @@ def _backend_model(endpoint: str) -> str:
 
 def _heartbeats() -> int:
     """当前生效的单作业心跳预算（写进报告，供事后判断"判定是不是被预算掐死"）。"""
-    from sgsr.verification.client import budget_for_jobs
+    from sgsr.lean import budget_for_jobs
 
     return budget_for_jobs()
+
+
+def classify_tier(record: dict, k: int) -> str:
+    """难度分档（吸收自旧 `scripts/calibrate_difficulty.py`）。
+
+    分档的理由是**增益只在近失手区间有信号**：兜底或首轮全解的题给不给库都一样，
+    稳定解不出的题余量为 0。口径与旧标定脚本一致，分母固定为 `k`（没生成出证明
+    也算失败），只是这里从"证明器自己的逐题记录"里读，不再多跑一次采样：
+
+    * `easy`：兜底命中（`path=cheap`），或首轮 k 篇全过；
+    * `nearmiss`：首轮 0 < 通过篇数 < k（唯一"能被一条引理翻过来"的档）；
+    * `hard`：首轮一篇都没过。
+
+    与旧脚本的差异（如实记在这里）：旧脚本另有 `unknown_cheap` 一档（兜底清扫被
+    墙钟上限截断，兜底能否解出未知）。证明器主路径不返回 `exhausted`，所以这一档
+    在这里退化成 `easy`/`hard`；需要那一档时用 `cheap_budget_ms` 调大兜底预算重跑。
+    """
+    if str(record.get("path") or "") == "cheap":
+        return "easy"
+    passed_first_round = sum(
+        1 for a in (record.get("attempts") or [])
+        if a.get("ok") is True and int(a.get("round") or 0) == 0
+    )
+    if passed_first_round >= k:
+        return "easy"
+    if passed_first_round > 0:
+        return "nearmiss"
+    return "hard"
+
+
+def write_tiers(rows: list[dict], records: list[dict], tier_dir: Path,
+                label: str) -> dict[str, int]:
+    """按分档写出 `<tier_dir>/<label>__<tier>.jsonl`（派生文件，随时可由本命令重建）。"""
+    by_id = {str(r.get("id")): r for r in records}
+    buckets: dict[str, list[dict]] = collections.defaultdict(list)
+    for row in rows:
+        record = by_id.get(str(row.get("id")))
+        if record is None:
+            continue
+        tier = str(record.get("tier") or "unknown")
+        buckets[tier].append(dict(row, tier=tier))
+    tier_dir.mkdir(parents=True, exist_ok=True)
+    for tier, subset in buckets.items():
+        (tier_dir / f"{label}__{tier}.jsonl").write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in subset),
+            encoding="utf-8",
+        )
+    return {tier: len(subset) for tier, subset in sorted(buckets.items())}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -143,6 +191,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-repair", action="store_true", help="关掉 repair（消融）")
     p.add_argument("--resume", action="store_true",
                    help="接着 --out 里已有的报告跑：跳过已完成的 id（报告是逐题落盘的）")
+    p.add_argument("--tier-out", default=None,
+                   help="按难度分档写出 `<dir>/<label>__{easy,nearmiss,hard}.jsonl`"
+                        "（吸收自旧 calibrate_difficulty.py；派生文件，可随时重建）")
     p.add_argument("--i-know-test-is-one-shot", action="store_true",
                    help="确认要在 T（miniF2F test）上跑——按协议只能跑一次")
     p.add_argument("--force-test-rerun", action="store_true",
@@ -182,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
     rows, label = load_rows(args)
     if not rows:
         raise SystemExit("[eval] 数据集为空")
+    # 留一份未过滤的清单：分档要覆盖**整批**（含 --resume 已经跑完的那些）。
+    all_rows = list(rows)
 
     # ── T 的一次性守卫（两道）──
     # ① 命令行必须显式确认；② 台账里已经有记录就直接拒绝。
@@ -264,6 +317,8 @@ def main(argv: list[str] | None = None) -> int:
             record = result.to_dict()
             record["id"] = row.get("id")
             record["domain"] = row.get("domain") or row.get("source") or label
+            # 难度分档（easy / nearmiss / hard）就写在逐题记录里，报告汇总见 build_report。
+            record["tier"] = classify_tier(record, args.k)
             records.append(record)
             print(f"[eval] {index}/{total_planned} {record['id']}: solved={record['solved']} "
                   f"path={record['path']} tokens={sum(record['usage'].get(k, 0) for k in
@@ -312,6 +367,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[eval] 兜底命中 {report['cheap_hits']}；"
           f"总 token {report['tokens']['total']}（计费口径 = prompt+completion）；"
           f"CostPerSolved {report['cost_per_solved']}")
+    if args.tier_out:
+        tiers = write_tiers(all_rows, records, Path(args.tier_out), label)
+        print(f"[eval] 分档清单写入 {args.tier_out}：{tiers}")
     print(f"[eval] 报告写入 {out_path}")
     return 0
 
@@ -404,6 +462,13 @@ def build_report(records: list[dict], *, label: str, args, budget, library_path,
         "model_solved": len(model_only),
         "backend_errors": len(backend_errors),
         "path_breakdown": dict(by_path),
+        # 难度分档：增益只在 nearmiss 档有信号，报告必须带上分布，
+        # 否则"这批题里有多少是本来就无余量的"只能靠人工翻 per_target。
+        "tiers": dict(sorted(collections.Counter(
+            str(r.get("tier") or "unknown") for r in records
+        ).items())),
+        "tiers_criterion": ("easy = path=cheap 或首轮 k 篇全过；nearmiss = 首轮 0<通过<k；"
+                            "hard = 首轮 0 篇通过。分母固定为 k（吸收自 calibrate_difficulty.py）"),
         "tokens": {**tokens, "total": total_tokens},
         "cost_per_solved": (total_tokens / len(solved_evaluable)) if solved_evaluable else None,
         "by_domain": {

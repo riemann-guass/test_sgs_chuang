@@ -43,8 +43,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sgsr.data.lean_parse import find_top_level_colon, strip_prelude  # noqa: E402
-from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
+from sgsr.data import find_top_level_colon, strip_prelude  # noqa: E402
+from sgsr.lean import LeanServer, budget_for_jobs  # noqa: E402
 
 RAW = ROOT / "data" / "raw" / "miniF2F-lean4" / "MiniF2F"
 DATA = ROOT / "data"

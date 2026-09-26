@@ -48,8 +48,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sgsr.data.schema import normalize_sig  # noqa: E402
-from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
+from sgsr.data import normalize_sig  # noqa: E402
+from sgsr.lean import LeanServer, budget_for_jobs  # noqa: E402
 
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"

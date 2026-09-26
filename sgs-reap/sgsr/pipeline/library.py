@@ -31,7 +31,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from sgsr.data.schema import normalize_sig
+from sgsr.data import normalize_sig
 
 #: 允许进库的语料标识：C 类（课程集）。`C1/C2/C3` 是 `docs/data-protocol.md` 里的三个来源。
 ALLOWED_SOURCE_CORPORA = {"C", "C1", "C2", "C3"}

@@ -49,9 +49,9 @@ from pathlib import Path
 
 from sgsr.pipeline.conjecture import generate as conjecture_generate
 from sgsr.pipeline.conjecture import load_demand, load_seeds
-from sgsr.utils.http_client import BackendUnavailable, soft_post_json
-from sgsr.pipeline.coverage import cost_of, evict as coverage_evict
-from sgsr.pipeline.coverage import exploration_admission, reuse_table, select_by_reuse
+from sgsr.client import BackendUnavailable, soft_post_json
+from sgsr.pipeline.selection import cost_of, evict as coverage_evict
+from sgsr.pipeline.selection import exploration_admission, reuse_table, select_by_reuse
 from sgsr.pipeline.demand import mine as mine_demand
 from sgsr.pipeline.library import (
     add_many,
@@ -60,8 +60,8 @@ from sgsr.pipeline.library import (
     name_for,
     write_all as write_library,
 )
-from sgsr.pipeline.retrieval import retrieve_library, symbols
-from sgsr.data.schema import candidate_id, normalize_sig, target_of, trace_from_job
+from sgsr.pipeline.selection import retrieve_library, symbols
+from sgsr.data import candidate_id, normalize_sig, target_of, trace_from_job
 
 
 def _verify_ok(result: dict) -> bool:
@@ -677,7 +677,18 @@ class RoundRunner:
         assert_clean_sources(self.library_path)
         if written == 0:
             return 0
-        # 物化整库（Materialize.emit 是重写整个文件），并编译出 olean 供 `import` 使用
+        self.materialize_library(report)
+        return written
+
+    def materialize_library(self, report: RoundReport | None = None) -> int:
+        """把**当前库**物化成 `GeneratedLibrary.lean` 并编译（返回物化了多少条）。
+
+        与 `commit` 分开是因为它有一个独立的用途：库没变、但物化文件丢了或过时
+        （换机器、清过 `.lake`、手工改过库），需要单独重建一次——
+        `scripts/run_round.py --materialize-only` 走的就是这条。
+
+        物化整库（`Materialize.emit` 是重写整个文件），并编译出 olean 供 `import` 使用。
+        """
         full = [
             {"stmt": row["stmt"], "proof": row["proof"], "verified": True,
              # 名字来自库行（`library.add_many` 按语句内容生成），不再按数组下标猜：
@@ -686,6 +697,8 @@ class RoundRunner:
              "source": row.get("source", "library")}
             for row in load_library(self.library_path)
         ]
+        if not full:
+            return 0
         with self.materialize_factory(len(full)) as server:
             response = server.batch([{"id": "mat", "cmd": "materialize",
                                       "path": str(self.generated_path), "entries": full}])
@@ -707,7 +720,7 @@ class RoundRunner:
                 "物化文件编译失败——下一轮的 import 会失败，必须当轮就停下："
                 f"{build.get('tail', '')[:400]}"
             )
-        return written
+        return len(full)
 
     def build_generated_library(self, timeout_s: int = 1800) -> dict:
         """`lake build SgsLean.GeneratedLibrary`（**模块目标**，不能用库目标）。
@@ -723,7 +736,7 @@ class RoundRunner:
         import re
         import subprocess
 
-        from sgsr.verification.client import SGSLEAN
+        from sgsr.lean import SGSLEAN
 
         lake = os.environ.get("LAKE", "lake")
         try:

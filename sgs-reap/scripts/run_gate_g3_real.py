@@ -58,9 +58,9 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sgsr.utils.http_client import soft_post_json  # noqa: E402
+from sgsr.client import soft_post_json  # noqa: E402
 from sgsr.pipeline.library import name_for  # noqa: E402
-from sgsr.verification.client import LeanServer, budget_for_jobs, preflight_imports  # noqa: E402
+from sgsr.lean import LeanServer, budget_for_jobs, preflight_imports  # noqa: E402
 
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
@@ -138,7 +138,7 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str
             # **按目标**注入（与在线路径同一套检索口径）：把整库原样塞进 prompt 时，
             # 与当前命题无关的引理占满预算，模型不会引用它们——"引用数=0"会是
             # 假象而不是结论。这里用符号重叠 + 复用密度排序取前 `--library-slots` 条。
-            from sgsr.pipeline.retrieval import retrieve_library
+            from sgsr.pipeline.selection import retrieve_library
 
             premises = retrieve_library(target["statement"], library, n=args.library_slots)
             payload["library"] = [{"name": p.name, "stmt": p.statement} for p in premises]
@@ -224,8 +224,7 @@ def main() -> int:
         return 1
     print(f"[g3r] 目标 {len(targets)} 条；库 {len(library)} 条；k={args.k}；端点 {args.endpoint}")
     if not library:
-        print("[g3r] 库为空——那两臂就没有差别，先跑 scripts\\build_library.py"
-              "（或 scripts\\run_round.py）把库建起来")
+        print("[g3r] 库为空——那两臂就没有差别，先跑 scripts\\run_round.py 把库建起来")
 
     # 预检：处理臂的 import 必须真的能用。
     # phase22 踩过一次：`lake build SgsLean` 不会编 `SgsLean.GeneratedLibrary`（olea 不存在），

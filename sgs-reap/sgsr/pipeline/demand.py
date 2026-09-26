@@ -42,7 +42,7 @@ import collections
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from sgsr.data.schema import normalize_sig
+from sgsr.data import normalize_sig
 
 
 @dataclass

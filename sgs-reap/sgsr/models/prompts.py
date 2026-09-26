@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 
-from sgsr.data.lean_parse import DECL_RE, close_declaration
+from sgsr.data import DECL_RE, close_declaration
 
 NO_RELEVANCE_SCORE_FOUND = -1113.0
 NO_REDUNDANCY_SCORE_FOUND = -1111.0

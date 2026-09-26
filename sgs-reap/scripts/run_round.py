@@ -40,7 +40,7 @@ from sgsr.pipeline.runner import (  # noqa: E402
     summarize,
 )
 from sgsr.pipeline.library import LibrarySourceError, assert_clean_sources  # noqa: E402
-from sgsr.verification.client import LeanServer, budget_for_jobs  # noqa: E402
+from sgsr.lean import LeanServer, budget_for_jobs  # noqa: E402
 
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
@@ -90,6 +90,8 @@ def main() -> int:
     parser.add_argument("--imports", default="Mathlib")
     parser.add_argument("--reset-library", action="store_true",
                         help="开始前清空库（离线冒烟用；真跑慎用）")
+    parser.add_argument("--materialize-only", action="store_true",
+                        help="只重建物化文件并编译（不跑轮）；吸收自旧 run_materialize.py")
     parser.add_argument("--expect-mock", action="store_true",
                         help="显式声明用的是假服务（仅用于离线冒烟，会写进报告文件名）")
     args = parser.parse_args()
@@ -135,7 +137,7 @@ def main() -> int:
         return 2
     if library_nonempty and not generated_path.exists():
         print(f"[round] 警告：库非空但物化文件不存在（{args.generated}）——"
-              f"先跑 `scripts/build_library.py --from-library` 重建它")
+              f"先跑 `scripts/run_round.py --materialize-only` 重建它")
     if args.reset_library and library_path.exists():
         library_path.unlink()
         print(f"[round] 已清空库：{library_path}")
@@ -174,6 +176,11 @@ def main() -> int:
     )
 
     started = time.perf_counter()
+    if args.materialize_only:
+        # 库没变、物化文件丢了或过时：单独重建一次（旧 run_materialize.py 的唯一用途）。
+        written = runner.materialize_library()
+        print(f"[round] --materialize-only：物化 {written} 条 → {generated_path}")
+        return 0
     try:
         reports = runner.run(args.rounds, on_round=lambda r: (run_dir / f"round_{r.round_index}.json")
                              .write_text(json.dumps(r.to_dict(), ensure_ascii=False, indent=2),

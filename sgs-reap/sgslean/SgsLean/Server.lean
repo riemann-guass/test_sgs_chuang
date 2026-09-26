@@ -9,15 +9,27 @@ Python 侧唯一入口，协议见 `docs/implementation-blueprint.md`。要点�
   或在 EOF 时自动 flush；每条请求恰好一条响应，顺序与请求一致。
 * **判定**：直接复用 P1.1 的 `Gate.check` / `Verify.verify`（`TacticM`），服务端与库内同源。
 
-## 执行模型：每批 spawn 一个 `lean` 子进程
+## 执行模型：一个常驻 `lean` 子进程、跨批复用（唯一路径）
 
 `Gate` / `Verify` 是 `TacticM` 动作，需要 elaboration 上下文，而 standalone 可执行文件里没有环境。
-父进程（本文件编译出的 `sgslean-server`）因此：
+`lake exe sgslean-server` 因此只做三件事：
 
-1. 在工作目录写 `jobs.json`（本批请求）与 `sgslean_snippet.lean`（**内容固定**的片段）；
-2. `spawn` 一个 `lean sgslean_snippet.lean` 子进程（`cwd` = 工作目录）；
-3. 片段里的 `run_tac SgsLean.Server.runJobs` 读 `jobs.json`、逐条判定、把响应数组写 `out.json`；
-4. 父进程读 `out.json`，逐条回响应。
+1. 准备唯一的工作目录（`SGSLEAN_WORKDIR`，默认 `.lake/sgslean-server-work`）：
+   `lean-toolchain`、`sgslean_snippet.lean`、`run_child.cmd`；
+2. `spawn` **一个** `lean sgslean_snippet.lean` 子进程（`cwd` = 工作目录）；
+3. 等 `stop.flag`：子进程在下一轮循环自己退出，父进程跟着退出。
+
+子进程里跑 `serveLoop`（`example : True := by run_tac SgsLean.Server.serveLoop`），
+**一次导入 Mathlib、反复服务多批作业**。与 Python 侧（`sgsr/verification/client.py`）
+的协议是三个文件：
+
+* 父进程把 `{"batch": n, "jobs": [...]}` **原子替换**进 `request.json`（批号单调递增）；
+* 子进程把第 n 批响应**逐条增量**写进 `out.<n>.json`（**批号唯一 ⟹ 文件名唯一**）；
+* 完成判据 = 该文件的响应条数 ≥ 作业数；写完更新 `served.txt`；`stop.flag` 停服务。
+
+心跳：整条循环跑在**一个 command** 里，按 command 累计的额度会把后面的批次掐死，
+所以片段设 `maxHeartbeats 0`（不限制）；真正的上界是每条 tactic 的墙钟 `reap.timeout`
+（默认 200 s）——与上游 SGS 的配置一致。
 
 工作目录里还有一份 `lean-toolchain`，保证 elan 在 `cwd` 下选出**与项目一致**的工具链
 （否则会落到 elan 默认工具链上，版本不匹配）。
@@ -31,8 +43,8 @@ Python 侧唯一入口，协议见 `docs/implementation-blueprint.md`。要点�
   stdout/stderr 一起挂到父进程的 stderr 上，协议流天然干净；
 * 子进程崩溃不会带走服务进程（首版 Mathlib 导入崩溃时整个 server 都没了）。
 
-代价：每批多一次进程启动（≈1–2 s）；Mathlib 模式下一次批处理的固定成本 = 导入 Mathlib
-（本机实测 ≈100–420 s，冷热差异大）。所以**必须批量喂请求**，别一条一条走。
+代价：每个会话一次进程启动 + 一次 Mathlib 导入（本机实测 67 s 热 / 493 s 冷）。
+所以 Python 侧必须**一个会话服务整批实验**，不要一题一会话。
 -/
 import SgsLean
 
@@ -54,17 +66,17 @@ def envNat (name : String) (fallback : Nat) : IO Nat := do
   | some raw => return (raw.trimAscii.toString.toNat?).getD fallback
   | none => return fallback
 
-/-- 子进程判定心跳的默认值（与 `SgsLean.defaultHeartbeats` 保持一致）。 -/
-def defaultHeartbeats : Nat := 4000000
+/-- 子进程判定心跳的默认值。**0 = 不限制**：常驻循环跑在一个 command 里，
+按 command 累计的额度会把后面的批次掐死（见 `serveLoop`）。
+需要显式封顶时用 `SGSLEAN_HEARTBEATS` 指定（诊断用）。 -/
+def defaultHeartbeats : Nat := 0
 /-- 秒杀心跳的默认值（与 `SgsLean.Trivial.defaultHeartbeats` 保持一致）。 -/
 def defaultTrivialHeartbeats : Nat := 200000
 /-- 单 tactic 墙钟上限的默认值（毫秒，与 reap 的 `reap.timeout` 默认一致）。 -/
 def defaultTacticTimeoutMs : Nat := 200000
 
-/-- 工作目录里的三个文件（片段固定用相对名，父进程把 `cwd` 设为工作目录）。 -/
+/-- 工作目录里的文件（都是相对名：子进程的 `cwd` 就是工作目录）。 -/
 def snippetFileName : String := "sgslean_snippet.lean"
-def jobsFileName : String := "jobs.json"
-def outFileName : String := "out.json"
 /-- 常驻子进程的文件协议（一次导入、跨批服务）。 -/
 def requestFileName : String := "request.json"
 def servedFileName : String := "served.txt"
@@ -272,55 +284,6 @@ def handleJob (job : Json) : TacticM Json := do
   catch ex =>
     return errResponse id "internal_error" (← ex.toMessageData.toString)
 
-/-- 读 `jobs.json`（JSON 数组）。 -/
-def readJobs : IO (Array Json) := do
-  let text ← IO.FS.readFile jobsFileName
-  return (Json.parse text).toOption.bind (fun j => j.getArr?.toOption) |>.getD #[]
-
-/-- 某个作业的响应已经落盘了吗（父进程据此判断这一条是否已完成）。 -/
-def responsesSoFar : IO (Array Json) := do
-  match ← (try some <$> IO.FS.readFile outFileName catch _ => pure none) with
-  | none => return #[]
-  | some text =>
-    match Json.parse text with
-    | .ok json => return json.getArr?.toOption.getD #[]
-    | .error _ => return #[]
-
-/-- **子进程入口**：判定 `jobs.json` 里的**第 `index` 条**作业，把响应数组写回 `out.json`。
-
-为什么是"一条作业一个 command"（而不是以前的一次 `run_tac` 跑完整批）：
-
-* Lean 的心跳预算**按 command 累计**（`Lean.Elab.Command` 在每个 command 开头记录
-  `initHeartbeats`）。整批挤在一个 `run_tac` 里 ⟹ 后面几十条作业共享前面作业的消耗，
-  批次尾部集体报 `maximum number of heartbeats`，看起来像"模型证不出"——
-  phase18/19/20 都踩过，只能靠 `budget_for_jobs` 这个经验公式硬撑。
-  一条作业一个 command，计数器**自动复位**，这类伪影从根上消失。
-* 每条作业的失败（心跳耗尽、tactic 抛异常）只影响它自己的 command，
-  父进程仍然能拿到其余条目的结果。
-
-响应**逐条落盘**（写完这条就写文件）：只要有一条让子进程硬崩，损失也限制在它自己，
-父进程侧对缺失条目回"响应缺失"，剩下的结果仍然可用。 -/
-def runJob (index : Nat) : TacticM Unit := do
-  let jobs ← readJobs
-  let some job := jobs[index]? | return ()
-  let out ← responsesSoFar
-  -- 只为兼容"父进程把响应数组按位置对齐"的约定：缺位补空对象。
-  let mut out := out
-  while out.size < index do
-    out := out.push (Json.mkObj [])
-  let response ← handleJob job
-  if out.size == index then
-    out := out.push response
-  else
-    out := out.set! index response
-  IO.FS.writeFile outFileName (Json.arr out).compress
-
-/-- 一次判定整批（保留给"作业数未知"的调用方；服务端主路径用 `runJob`）。 -/
-def runJobs : TacticM Unit := do
-  let jobs ← readJobs
-  for index in [:jobs.size] do
-    runJob index
-
 /-! ## 常驻子进程（性能修复：一次导入、跨批服务） -/
 
 /-- 读父进程的请求：`{"batch": n, "jobs": [...]}`。
@@ -391,9 +354,9 @@ end
 
 /-- 片段源码：**形状固定**（import 头与判定预算由环境配置决定，请求数据永不参与拼字符串）。
 
-每个作业一个 `example` command：心跳计数器按 command 复位，批次尾部不再被前面的作业
-拖死（见 `runJob` 的说明）。`nJobs` 只决定重复几个 command，不插入任何请求内容。 -/
-def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) (_nJobs : Nat) : String :=
+整个会话只有**一个** `example` command：里面跑 `serveLoop`，跨批反复服务。
+心跳按 command 累计，所以 `maxHeartbeats 0`（不限制），真正的上界是 `reap.timeout`。 -/
+def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) : String :=
   let mods := parseImports imports
   -- 没有 Mathlib 时要自己补 `ℕ` 记法；有 Mathlib 时**不能**补（重复声明 termℕ 是硬错误）
   let notationPatch := if mods.contains "Mathlib" then #[] else #["import SgsLean.Syntax"]
@@ -407,8 +370,6 @@ def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) (_nJobs 
   let header := (mods.map (fun m => s!"import {m}")) ++ notationPatch ++
     #["import SgsLean", "import SgsLean.Server"]
   -- **常驻**：一个 example 里跑 `serveLoop`，跨批反复服务（一次导入 Mathlib）。
-  -- 作业数不再决定片段形状（旧设计一个作业一个 command），所以 `_nJobs` 只是
-  -- 保留旧签名——调用方仍会传它，值被忽略。
   -- 心跳设 0 = 不限制（整个循环在一个 command 里，按 command 累计的额度会把后面的批次掐死）；
   -- 真正的上界是每条 tactic 的墙钟 `reap.timeout`。
   let heartbeatOption :=
@@ -422,8 +383,8 @@ def snippetSource (imports : String) (heartbeats tacticTimeoutMs : Nat) (_nJobs 
     "open Lean Meta Elab Tactic",
     "set_option autoImplicit true",
     "set_option Elab.async false",
-    -- **关掉 Lean 的错误上限**（默认 `maxErrors = 100`）。一个作业一个 command 之后，
-    -- 失败作业的错误会累加到**同一个文件**的消息表里：一旦累计到 100，Lean 直接
+    -- **关掉 Lean 的错误上限**（默认 `maxErrors = 100`）。常驻循环把所有作业的判定
+    -- 都跑在同一个文件里，失败作业的错误会累加到同一张消息表：一旦累计到 100，Lean 直接
     -- `maximum number of errors (100; from option maxErrors) reached, exiting`，
     -- 后面的 command 一个都不跑 ⟹ 父进程对它们回"响应缺失"，而调用方会把它误读成
     -- "这些候选没过门检"。实测：156 个作业的硬门批只回了 51 条，2/3 的候选被静默丢掉。
@@ -443,7 +404,7 @@ def projectToolchain : IO String := do
   catch _ =>
     return "leanprover/lean4:v4.28.0-rc1"
 
-/-- 准备工作目录：片段 + 工具链 + 记录用信息。 -/
+/-- 准备工作目录：工具链 + 启动脚本（片段由 `serveResident` 写）。 -/
 def prepareWorkDir : IO System.FilePath := do
   let dir : System.FilePath :=
     match (← IO.getEnv "SGSLEAN_WORKDIR") with
@@ -451,111 +412,42 @@ def prepareWorkDir : IO System.FilePath := do
     | none => ".lake" / "sgslean-server-work"
   IO.FS.createDirAll dir
   IO.FS.writeFile (dir / "lean-toolchain") ((← projectToolchain) ++ "\n")
-  -- 片段**每批**重写（内容只依赖 import/预算/作业条数），所以这里不再写它——
-  -- 见 `runBatch`。工作目录里仍然要有 lean-toolchain 与启动脚本。
   -- 用脚本文件承载重定向：`cmd /c` 的参数里带空格/重定向符时，Lean 的 spawn 会加引号，
   -- 实测传过去就不是 cmd 想要的语法（exit=1、日志也没生成）。写进 .cmd 最稳。
   IO.FS.writeFile (dir / childCmdFileName)
     s!"@echo off\r\nlean {snippetFileName} > child.log 2>&1\r\n"
   return dir
 
-/-- 跑一批作业：写 `jobs.json` → spawn `lean` → 读 `out.json`。
-返回（与 `jobs` 等长的响应数组，子进程耗时毫秒）。 -/
-def runBatch (jobs : Array Json) (workDir : System.FilePath) : IO (Array Json × Nat) := do
-  if jobs.isEmpty then return (#[], 0)
-  IO.FS.writeFile (workDir / jobsFileName) (Json.arr jobs).compress
-  -- 每批重写片段：一个作业一个 command（心跳按 command 复位），作业条数决定 command 数。
+/-- 起常驻子进程并等它退出（`lake exe sgslean-server` 的全部工作）。
+
+子进程在 `serveLoop` 里轮询 `request.json` / `stop.flag`；父进程只负责
+写片段 → spawn → 等子进程自己看到 `stop.flag` 后退出。
+
+Python 侧（`sgsr/verification/client.py`）的 `close()` 先写 `stop.flag` 再等这个进程，
+所以这里**不能**在子进程退出前返回：否则子进程会变成孤儿，继续占着 Mathlib 的内存。 -/
+def serveResident : IO Unit := do
+  let workDir ← prepareWorkDir
   let imports := (← IO.getEnv "SGSLEAN_IMPORTS").getD defaultImports
   let heartbeats ← envNat "SGSLEAN_HEARTBEATS" defaultHeartbeats
   let tacticTimeoutMs ← envNat "SGSLEAN_TACTIC_TIMEOUT_MS" defaultTacticTimeoutMs
   IO.FS.writeFile (workDir / snippetFileName)
-    (snippetSource imports heartbeats tacticTimeoutMs jobs.size)
-  let outPath := workDir / outFileName
-  try IO.FS.removeFile outPath catch _ => pure ()
-  let start ← IO.monoNanosNow
+    (snippetSource imports heartbeats tacticTimeoutMs)
   -- 子进程输出用 **shell 重定向**落到 child.log：
   -- `IO.withStdout` 只改 Lean 层的流，改不了子进程继承的 OS 句柄（实测子进程的错误消息
   -- 会直接漏进 stdout，破坏协议）；`.piped` 又会被 Lean 按 UTF-8 解码（中文环境的
   -- bsdtar/curl 输出会触发 `non UTF-8 data` panic），所以交给 cmd.exe 重定向最稳。
-  let exitCode ← do
-    let child ← IO.Process.spawn {
-      cmd := "cmd.exe"
-      args := #["/c", childCmdFileName]
-      cwd := some workDir
-      stdin := .null
-      stdout := .null
-      stderr := .null
-    }
-    child.wait
-  let stop ← IO.monoNanosNow
-  let elapsedMs := (stop - start) / 1000000
-  let failure := fun () =>
-    jobs.map fun job =>
-      errResponse (job.getObjValD "id") "internal_error"
-        s!"lean 子进程未产出结果（exit={exitCode}）；\
-           工作目录 {workDir.toString} 里有 {snippetFileName}/{jobsFileName} 可手工复现，\
-           诊断见同目录 child.log"
-  match (← (try some <$> IO.FS.readFile outPath catch _ => pure none)) with
-  | none => return (failure (), elapsedMs)
-  | some text =>
-    match Json.parse text with
-    | .ok json => return ((json.getArr?.toOption.getD #[]), elapsedMs)
-    | .error _ => return (failure (), elapsedMs)
-
-/-- 打印一批响应：`batch` 里每一条作业恰好一条响应，顺序一致。返回（条数，子进程毫秒）。 -/
-private def flushBatch (workDir : System.FilePath) (batch : Array Json) : IO (Nat × Nat) := do
-  let stdout ← IO.getStdout
-  let (responses, elapsedMs) ← runBatch batch workDir
-  let mut out : Array String := #[]
-  let mut idx := 0
-  for job in batch do
-    match responses[idx]? with
-    | some r => out := out.push r.compress
-    | none => out := out.push (errResponse (job.getObjValD "id") "internal_error" "响应缺失").compress
-    idx := idx + 1
-  for line in out do
-    stdout.putStrLn line
-  stdout.flush
-  return (out.size, elapsedMs)
-
-/-- 主循环：读 JSONL 请求，按批 flush，逐条回响应。 -/
-def mainLoop : IO Unit := do
-  let stdin ← IO.getStdin
-  let stdout ← IO.getStdout
-  let workDir ← prepareWorkDir
-  let mut batch : Array Json := #[]
-  let mut running := true
-  while running do
-    let line ← stdin.getLine
-    if line.isEmpty then
-      running := false
-      let _ ← flushBatch workDir batch
-    else
-      let trimmed := line.trimAscii.toString
-      if trimmed.isEmpty then
-        pure ()
-      else
-        -- 只有"JSON 对象"才算请求；其它情况一律立刻回 bad_request（这类响应没有可回填的 id）
-        match Json.parse trimmed with
-        | .error msg =>
-          stdout.putStrLn (errResponse Json.null "bad_request" s!"invalid JSON line: {msg}").compress
-          stdout.flush
-        | .ok json =>
-          match json with
-          | .obj _ =>
-            if ((json.getObjValAs? String "cmd").toOption.getD "") == "flush" then
-              let (n, elapsedMs) ← flushBatch workDir batch
-              batch := #[]
-              stdout.putStrLn (okResponse (json.getObjValD "id")
-                (Json.mkObj [("flushed", toJson n), ("frontend_ms", toJson elapsedMs)])).compress
-              stdout.flush
-            else
-              batch := batch.push json
-          | _ =>
-            stdout.putStrLn (errResponse Json.null "bad_request" "请求必须是 JSON 对象").compress
-            stdout.flush
+  let child ← IO.Process.spawn {
+    cmd := "cmd.exe"
+    args := #["/c", childCmdFileName]
+    cwd := some workDir
+    stdin := .null
+    stdout := .null
+    stderr := .null
+  }
+  let _ ← child.wait
+  return ()
 
 end SgsLean.Server
 
-/-- 可执行入口（`lake exe sgslean-server`）。 -/
-def main : IO Unit := SgsLean.Server.mainLoop
+/-- 可执行入口（`lake exe sgslean-server`）：起唯一一个常驻 `lean` 子进程。 -/
+def main : IO Unit := SgsLean.Server.serveResident

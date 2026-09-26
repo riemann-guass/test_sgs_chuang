@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from sgsr.models import config
+from sgsr import client
 
 
 def http_json(url: str, key: str, payload: dict | None = None, timeout: int = 30) -> tuple[int, dict]:
@@ -34,9 +34,9 @@ def http_json(url: str, key: str, payload: dict | None = None, timeout: int = 30
 
 
 def main() -> int:
-    config.ensure_utf8_stdout()
-    key = config.api_key()
-    base = config.base_url()
+    client.ensure_utf8_stdout()
+    key = client.api_key()
+    base = client.base_url()
     if not key:
         print("[check] 未找到 DEEPSEEK_API_KEY（请检查 MODELS/.env）")
         return 2

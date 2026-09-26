@@ -1,5 +1,0 @@
-{"id": "h01", "domain": "nat", "statement": "∀ (n : Nat), n + 0 = n + 0", "note": "held-out：仅用于 P4 评测，不参与任何轮的库构建"}
-{"id": "h02", "domain": "nat", "statement": "∀ (n : Nat), n * 1 = n", "note": "held-out"}
-{"id": "h03", "domain": "prop", "statement": "∀ (P Q : Prop), (P ∧ Q) → (Q ∧ P)", "note": "held-out"}
-{"id": "h04", "domain": "prop", "statement": "∀ (P : Prop), P → ¬ ¬ P", "note": "held-out"}
-{"id": "h05", "domain": "nat", "statement": "∀ (a b : Nat), a = b → b = a", "note": "held-out"}

@@ -22,7 +22,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from sgsr.utils.http_client import soft_post_json
+from sgsr.client import soft_post_json
 
 
 @dataclass
@@ -65,8 +65,8 @@ def build_payload(
 def post(endpoint: str, payload: dict, timeout: float = 300.0) -> dict:
     """软失败 POST：错误收进 `{"error": {...}}`。
 
-    保留软语义是因为调用方（`run_conjecture.py`）要把**每一条目标**的失败原因写进
-    报告；但闭环侧（`runner.conjecture`）**必须**把 `error` 计成 `backend_error`，
+    保留软语义是因为调用方要把**每一条目标**的失败原因写进报告；
+    但闭环侧（`runner.conjecture`）**必须**把 `error` 计成 `backend_error`，
     不许与"模型没出候选"混在一起——见 `runner.round` 的 `protocol/backend` 计数。
     """
     return soft_post_json(endpoint, payload, timeout=timeout)

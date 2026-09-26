@@ -71,23 +71,27 @@ score(l) = reuse(l) / cost(l)
 - **Lean 侧**：门检 `Gate`、内核终检 `Verify`、非平凡 `Trivial`、新颖 `Novelty`、
   廉价 tactic 兜底 `Trivial.tryCheapTactics`、软分测量 `Measure`、物化 `Materialize`、
   轨迹 `Trace`（含证明项常量，供复用测量）、stdio JSON 服务 `Server`
-  （协议 v1.2，含 `cheap` / `cheap_verify` 命令；**一个作业一个 command**，心跳按条复位）
+  （协议 v1.2，含 `cheap_verify`；**唯一一条执行路径**是常驻子进程：
+  一次导入 Mathlib、跨批服务，实测首批 577 s、第二批 0.1 s）
 - **Python 侧**：模型代理与假服务、提示词与解析、需求挖掘、猜想、库读写、
-  覆盖度与选择、**闭环编排**（十步一环）、**在线九步证明器**
-  （`prover` · `retrieval` · `repair` + `scripts/prove.py` / `run_prover_eval.py`）
+  选择层、**闭环编排**（十步一环）、**在线九步证明器**
+  （`pipeline/prover.py` · `pipeline/selection.py` + `scripts/prove.py` / `run_prover_eval.py`）
 - **选择层真接线**：准入（探索额度）· 复用测量（按**不同目标**的**通过验收**证明计数）·
   复用/曝光落盘 · 僵尸淘汰（要求"被给过机会"）· 提示词注入（`reuse/cost` 密度贪心）
 - **库**：`experiments/library.jsonl` **35 条**（在 C 上建的，来源 C2 = Mathlib 定理，
   内容哈希命名，带复用/曝光/成本字段）；两臂装置检查里处理臂 14/24 篇证明引用了它
 - **测量装置**：两臂覆盖测量，含环境预检与**按目标检索注入**+引用计数；
-  批量评测报三个口径的 pass@k；难度标定 `scripts/calibrate_difficulty.py`
-- **公共入口**：`sgsr/utils/http_client.py`（HTTP）· `sgsr/verification/client.py`
-  （Lean 常驻客户端 + 预检）· `sgsr/data/lean_parse.py`（声明→命题）
-- **测试**：`scripts/run_closure_tests.py` 60 条断言（含准入/复用/物化往返）
+  批量评测报三个口径的 pass@k 与难度分档（`run_prover_eval --tier-out`）
+- **公共入口**（"只许有一份"）：`sgsr/client.py`（HTTP + 配置 + chat 后端）·
+  `sgsr/lean.py`（Lean 常驻客户端 + 预检）· `sgsr/data.py`（模式 + 声明→命题）
+- **测试**：`scripts/run_closure_tests.py` **70 条断言**（含准入/复用/提示词/常驻会话/物化往返）
+- **结构**：`sgsr/` 10 个模块、`scripts/` 5 个入口；派生数据（分档清单）不入库，
+  坑清单在 `sgs-reap/docs/pitfalls.md`
 
 **待建**（见思路文档第二版第 9 节）：
 
-1. ~~P1 真模型数字~~：✅ 已跑（`experiments/results/p1_dev_k4_n20.json`，逐题落盘）
+1. **P1 真模型数字**：⚠️ `experiments/results/p1_dev_k4_n20.json` 目前是 `partial: true`
+   的部分报告（9/20 可评测、解出 2）。**要重跑**——现在整批共用一个 Lean 会话，`--resume` 接着跑。
 2. ~~P2 小实验台~~：✅ 已跑——语料 C = 195 条（与 D/T 零重叠）、难度标定、
    真模型 3 轮建库（**库 35 条**）、两臂装置检查（处理臂 **14/24 篇**引用库引理）
 3. **P3 三组对照**：A（SGS 原样，LLM 打分）／B（复用判据 + 需求）／C（随机伪需求消融）。
@@ -95,8 +99,10 @@ score(l) = reuse(l) / cost(l)
    代理缓存要给重复采样留出口
 4. **P4 成本与复用分析**、**P5 写作**
 
-**已知的最大工程缺口**：Lean 子进程仍不常驻——每批实验都要重付一次 Mathlib 导入
-（实测 75 s 量级）。上游 SGS 用的是持久化 REPL，这是下一件首要工作。
+**诚实记录**：活动库 35 条的 `reuse` **全是 0**。也就是说，"引用计数"这个代理在当前语料与
+提示词下量到的是"模型不需要库"；它与真实边际增益的相关性要等 P3/P4 的 Spearman 审计与
+逐引理 with/without 消融。"自博弈"命名、子模性保证的适用范围、`reuse` 的语义这三条表述
+属重大方向改变，改之前先问用户。
 
 参考基线：miniF2F **valid** 修正预算后（k=3）候选级 44/164、目标级 18/57 ≈ 32%；
 "近失手"（解出率严格介于 0 与 1）约占一成，是唯一有增益信号的区间。
@@ -109,17 +115,19 @@ score(l) = reuse(l) / cost(l)
 ├─ AGENTS.md                 项目记忆与约束
 └─ sgs-reap/
    ├─ sgsr/                  Python 包（对应上游 SGS 的 sgs/ 布局）
-   │   ├─ models/            模型服务：真代理 / 假服务 / 提示词 / 后端 / 配置
-   │   ├─ pipeline/          在线：prover · retrieval · repair（P1 骨架已建）
-   │   │                     离线：demand · conjecture · library · coverage · runner
-   │   ├─ verification/      Lean 服务常驻客户端
-   │   ├─ data/ · utils/     数据模式与服务辅助
+   │   ├─ client.py          对外通信唯一入口：HTTP + 配置 + chat 后端
+   │   ├─ lean.py            Lean 常驻客户端（跨批复用 + 环境预检）
+   │   ├─ data.py            轨迹/需求模式 + 「声明 → 闭式命题」
+   │   ├─ models/            模型服务：真代理 / 假服务 / 提示词
+   │   └─ pipeline/          在线：prover（含 repair）· selection（检索 + 选择）
+   │                         离线：demand · conjecture · library · runner
    ├─ sgslean/               Lean 实验库（Gate/Verify/Trivial/Novelty/Measure/Materialize/Trace/Server）
    ├─ reap-fork/             上游 reap 的本地 fork（验证内核与 MCTS）
-   ├─ scripts/               实验入口：prove · run_prover_eval · run_round · run_gate_* · …
+   ├─ scripts/               实验入口（5 个）：prove · run_prover_eval · run_round ·
+   │                         run_gate_g3_real · run_closure_tests
    ├─ tools/                 数据集转换与后端自检
-   ├─ data/ · experiments/   数据集与实验报告
-   └─ docs/                  方案、框架、数据协议、接口契约、阶段日志
+   ├─ data/ · experiments/   数据集与实验报告（`experiments/archive/` 存退役仪器的旧报告）
+   └─ docs/                  数据协议 · 接口契约 · 坑清单 · history/（方案与阶段日志）
 ```
 
 ## 快速开始（离线可复现）
