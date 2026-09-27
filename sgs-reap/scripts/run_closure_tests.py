@@ -44,6 +44,7 @@ from sgsr.data import candidate_id, target_of, validate_trace  # noqa: E402
 from sgsr.pipeline.selection import (  # noqa: E402
     evict,
     exploration_admission,
+    retrieve_library,
     reuse_cost_greedy,
     select_by_reuse,
     spearman,
@@ -64,6 +65,7 @@ from sgsr.pipeline.runner import (  # noqa: E402
     TargetSet,
 )
 from sgsr.pipeline.prover import close_declaration, parse_input  # noqa: E402
+from sgsr.lean import materialize_imports, resolve_imports  # noqa: E402
 
 RESULTS: list[tuple[str, bool, str]] = []
 
@@ -509,6 +511,82 @@ def test_prompt_blocks() -> None:
     check("提示词：有范例时出现 LIBRARY EXCERPTS 且无范例时不出现",
           "LIBRARY EXCERPTS" in with_seeds and "LIBRARY EXCERPTS" not in no_demand)
 
+    library = [{"name": "sgs_lem_a", "stmt": "∀ n : Nat, n + 0 = n"}]
+    product = prompts.solve_prompt("∀ n : Nat, n = n", 2, library=library, mode="product")
+    measurement = prompts.solve_prompt(
+        "∀ n : Nat, n = n", 2, library=library, mode="measurement", sample_salt="r1:t1"
+    )
+    check("提示词：产品模式可主动建议检查库", "Check them FIRST" in product)
+    check("提示词：测量模式中性陈列，不诱导引用",
+          "Do not prefer or avoid" in measurement and "Check them FIRST" not in measurement)
+    check("提示词：轮次盐进入提示词以打破重复采样缓存",
+          "Sampling nonce" in measurement and "r1:t1" in measurement)
+
+
+def test_import_policy_and_retrieval_order() -> None:
+    """import 决策与“相关性先于复用”必须只有一条口径。"""
+    tmp = scratch_dir("import_policy")
+    empty = tmp / "empty.jsonl"
+    empty.write_text("", encoding="utf-8")
+    populated = tmp / "library.jsonl"
+    populated.write_text('{"stmt":"True"}\n', encoding="utf-8")
+
+    check("import：空库只导入 Mathlib", resolve_imports(empty) == "Mathlib")
+    check("import：非空库自动导入生成库",
+          resolve_imports(populated) == "Mathlib,SgsLean.GeneratedLibrary")
+    rejected = False
+    try:
+        resolve_imports(populated, "Mathlib")
+    except ValueError:
+        rejected = True
+    check("import：反向对照——非空库却漏生成库会被拒绝", rejected)
+    check("import：物化环境剔除生成库自身",
+          materialize_imports("Mathlib,SgsLean.GeneratedLibrary") == "Mathlib")
+
+    rows = [
+        {"name": "sgs_lem_irrelevant", "stmt": "List.reverse xs = xs", "reuse": 100,
+         "cost_tokens": 1},
+        {"name": "sgs_lem_relevant", "stmt": "∀ n : Nat, n + 0 = n", "reuse": 1,
+         "cost_tokens": 100},
+    ]
+    picked = retrieve_library("∀ n : Nat, n + 1 > n", rows, n=2)
+    names = [p.name for p in picked]
+    check("检索：相关性先于复用密度", names == ["sgs_lem_relevant"], f"{names}")
+    check("检索：反向对照——高复用无关引理不得进提示词",
+          "sgs_lem_irrelevant" not in names, f"{names}")
+
+
+def test_round_uses_one_main_session() -> None:
+    """一轮编排只能进入一次主 Lean 会话；各阶段复用该对象。"""
+    events: list[str] = []
+
+    class FakeServer:
+        batch_count = 0
+
+        def __enter__(self):
+            events.append("enter")
+            return self
+
+        def __exit__(self, *_):
+            events.append("exit")
+
+    fake = FakeServer()
+
+    class ProbeRunner(RoundRunner):
+        def __init__(self):
+            self.lean_server_factory = lambda _n: fake
+            self.seen = None
+
+        def _run_round_in(self, server):
+            self.seen = server
+            return "ok"
+
+    runner = ProbeRunner()
+    result = runner.run_round()
+    check("执行引擎：离线一轮只开一个主 Lean 会话",
+          result == "ok" and events == ["enter", "exit"] and runner.seen is fake,
+          f"events={events}")
+
 
 def test_tier_classification() -> None:
     """难度分档（吸收自 `calibrate_difficulty.py` 的那部分）必须能被反向对照抓住。
@@ -651,6 +729,8 @@ def main() -> int:
     test_reuse_persistence(scratch_dir("reuse_persist"))
     test_prover_module_api()
     test_prompt_blocks()
+    test_import_policy_and_retrieval_order()
+    test_round_uses_one_main_session()
     test_tier_classification()
 
     if not args.no_lean:

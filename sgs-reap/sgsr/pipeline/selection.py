@@ -27,9 +27,8 @@ LeanSearch / LeanExplore / LeanPremise 已经把检索本身做到位了——�
 
 ## 与复用判据的关系（规格 5.5 节）
 
-库条目若带 `reuse` / `cost_tokens`（离线建库时会写），排序首先按 `reuse/cost_tokens`
-降序——那才是项目的方法性判据；只有缺失这两个字段时才退回符号重叠。
-这样"检索层"与"选择层"用的是同一个量，不会出现两套排序口径。
+检索必须先回答“与当前目标是否相关”，再在相关候选中使用 `reuse/cost_tokens` 排序。
+全局高复用但与当前命题无符号交集的引理不得挤占提示词预算。
 """
 
 from __future__ import annotations
@@ -119,10 +118,8 @@ def _reuse_density(row: dict) -> float | None:
 def retrieve_library(stmt: str, lib: list[dict], n: int = 8) -> list[Premise]:
     """第一层：从自有库里排序取前 `n` 条。
 
-    排序键是 `(复用密度, 符号重叠)`——把"项目判据"放在第一位，
-    但**不因此丢掉**没有复用记录的条目（新入库的引理在前几轮还没被测量过，
-    直接扔掉等于它永远测不到）。缺 `reuse`/`cost_tokens` 时第一键退回重叠，
-    于是排序键退化成 `(重叠, 重叠)`，与"只用重叠"等价。
+    先过滤与查询无符号交集的条目，再按 `(符号重叠, 复用密度)` 排序。复用是相关
+    候选之间的预算判据，不是相关性的替代物。没有复用记录的新条目仍可凭相关性进入。
     """
     query = symbols(stmt)
     scored: list[tuple[tuple[float, float], int, dict]] = []
@@ -131,8 +128,10 @@ def retrieve_library(stmt: str, lib: list[dict], n: int = 8) -> list[Premise]:
         if not text:
             continue
         overlap = overlap_score(text, query)
+        if query and overlap <= 0:
+            continue
         density = _reuse_density(row)
-        key = (density if density is not None else overlap, overlap)
+        key = (overlap, density if density is not None else -1.0)
         scored.append((key, index, row))
     # 同分时按库内顺序（稳定），保证检索可复现
     scored.sort(key=lambda item: (item[0], -item[1]), reverse=True)
@@ -238,13 +237,9 @@ def retrieve(
     if mathlib_endpoint and not mathlib_premises:
         result.notes.append("外部检索返回空（端点不可用或没有命中）")
 
-    ranked = sorted(
-        library_premises + mathlib_premises,
-        # 第一键是项目判据（reuse/cost 密度），第二键是符号重叠，第三键让库优先。
-        key=lambda p: (p.density if p.density is not None else -1.0,
-                       p.score, p.source == "library"),
-        reverse=True,
-    )
+    # 层次本身有顺序：先使用自有活动库，再用外部 Mathlib 检索兜底。各层已经按各自
+    # 的相关性分数排序；不要把不可比较的外部 score 与 reuse 密度混成一个全局分数。
+    ranked = library_premises + mathlib_premises
     remaining = budget
     for premise in ranked:
         if premise.tokens > remaining:

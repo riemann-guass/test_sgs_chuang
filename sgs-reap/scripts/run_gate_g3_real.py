@@ -58,8 +58,9 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sgsr.client import soft_post_json  # noqa: E402
 from sgsr.pipeline.library import name_for  # noqa: E402
+from sgsr.pipeline.prover import solve_candidates  # noqa: E402
+from sgsr.client import BackendUnavailable  # noqa: E402
 from sgsr.lean import LeanServer, budget_for_jobs, preflight_imports  # noqa: E402
 
 DATA = ROOT / "data"
@@ -68,11 +69,6 @@ RUNS = ROOT / "experiments" / "runs"
 DEFAULT_SOLVE = "http://127.0.0.1:8770/solve"
 LIBRARY_IMPORTS = "Mathlib,SgsLean.GeneratedLibrary"
 BASE_IMPORTS = "Mathlib"
-
-
-def http_post(url: str, payload: dict, timeout: float = 300.0) -> dict:
-    """软失败 POST（HTTP 实现统一在 `sgsr/models/http.py`）。"""
-    return soft_post_json(url, payload, timeout=timeout)
 
 
 def load_library(path: Path) -> list[dict]:
@@ -133,29 +129,35 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str
     attempts: dict[str, list[str]] = {}
     backend_errors: list[dict] = []
     for target in targets:
-        payload = {"statement": target["statement"], "num_samples": args.k}
+        prompt_library: list[dict] = []
         if library:
             # **按目标**注入（与在线路径同一套检索口径）：把整库原样塞进 prompt 时，
             # 与当前命题无关的引理占满预算，模型不会引用它们——"引用数=0"会是
-            # 假象而不是结论。这里用符号重叠 + 复用密度排序取前 `--library-slots` 条。
+            # 假象而不是结论。这里先按相关性过滤，再用复用密度打破相关候选间的平局。
             from sgsr.pipeline.selection import retrieve_library
 
             premises = retrieve_library(target["statement"], library, n=args.library_slots)
-            payload["library"] = [{"name": p.name, "stmt": p.statement} for p in premises]
-        response = http_post(args.endpoint, payload)
-        if isinstance(response.get("error"), dict):
-            # 端点故障 ≠ "模型没写出证明"。旧实现把两者都变成"0 篇候选"，
-            # 于是两臂都可能是 0，而报告说"增益 0"——那是装置结论，不是方法结论。
-            backend_errors.append({"target": target["id"], "error": response["error"]})
+            prompt_library = [{"name": p.name, "stmt": p.statement} for p in premises]
+        try:
+            proofs, _ = solve_candidates(
+                args.endpoint,
+                target["statement"],
+                args.k,
+                prompt_library,
+                prompt_mode="measurement",
+                sample_salt=f"g3:{target['id']}",
+            )
+        except BackendUnavailable as exc:
+            backend_errors.append({"target": target["id"], "error": str(exc)})
             attempts[target["id"]] = []
-            print(f"       {target['id']:30s} \u26a0 端点报错：{response['error'].get('code')}")
+            print(f"       {target['id']:30s} \u26a0 端点报错：{exc}")
             continue
-        proofs = [p.get("proof", "") for p in (response.get("proofs") or [])]
         attempts[target["id"]] = [p for p in proofs if p.strip()]
         print(f"       {target['id']:30s} 候选证明 {len(attempts[target['id']])} 篇")
 
     jobs = [
-        {"id": f"{tid}:{i}", "cmd": "verify", "stmt": stmt, "proof": proof}
+        {"id": f"{tid}:{i}", "target": tid, "cmd": "dependencies",
+         "stmt": stmt, "proof": proof}
         for tid, stmt in ((t["id"], t["statement"]) for t in targets)
         for i, proof in enumerate(attempts[tid])
     ]
@@ -182,13 +184,22 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str
                                  "reason": f"protocol_error:{entry['error'].get('code')}"})
                 continue
             result = entry.get("result") or {}
-            verdicts.append({"index": i, "ok": result.get("ok") is True,
-                             "reason": result.get("reason")})
+            verdicts.append({
+                "index": i,
+                "ok": result.get("verified") is True,
+                "reason": result.get("reason"),
+                "constants": list(result.get("constants") or []),
+            })
         ok_count = sum(1 for v in verdicts if v["ok"])
-        # **关键诊断**：模型到底有没有引用库里的引理？
-        # 如果处理臂里几乎没人写 `sgs_lem_*`，那这个臂实际是"提示词多了一段文字"，
-        # 而不是"库可用"——增益为 0 就不能归因于"库没用"。
-        citations = sum(1 for proof in attempts[tid] if "sgs_lem" in proof)
+        # 只统计通过内核验收的证明项常量；失败文本中出现库名不算复用。
+        citations = sum(
+            1
+            for verdict in verdicts
+            if verdict["ok"] and any(
+                str(name).rsplit(".", 1)[-1].startswith("sgs_lem_")
+                for name in verdict.get("constants", [])
+            )
+        )
         out[tid] = {
             "provable": ok_count > 0,
             "ok_count": ok_count,

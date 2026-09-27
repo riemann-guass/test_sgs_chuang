@@ -10,7 +10,7 @@
     ④ 判据层 G：门检 → 硬门（非平凡 ∧ 新颖）
     ⑤ 求解（k 篇证明）→ ⑥ 验证（可证硬门）
     ⑦ 软分（依赖抽取；压缩收益在能配对时才算）
-    ⑧ 选择（N2：按"父目标覆盖"做子模贪心，受库容 B 约束）
+    ⑧ 选择（探索准入；复用证据只用于后续晋升与预算排序）
     ⑨ 物化 + 入库 + 记忆注入（下一轮的提示词自动带上库）
     ─────────────────────────────────────────────
     ⑩ 一轮结束 → 回到 ①（此时提示词里已经有库了）
@@ -40,7 +40,6 @@
 
 from __future__ import annotations
 
-import collections
 import json
 import time
 from dataclasses import dataclass, field
@@ -48,8 +47,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sgsr.pipeline.conjecture import generate as conjecture_generate
-from sgsr.pipeline.conjecture import load_demand, load_seeds
-from sgsr.client import BackendUnavailable, soft_post_json
+from sgsr.client import BackendUnavailable
+from sgsr.pipeline.prover import solve_candidates
 from sgsr.pipeline.selection import cost_of, evict as coverage_evict
 from sgsr.pipeline.selection import exploration_admission, reuse_table, select_by_reuse
 from sgsr.pipeline.demand import mine as mine_demand
@@ -61,7 +60,7 @@ from sgsr.pipeline.library import (
     write_all as write_library,
 )
 from sgsr.pipeline.selection import retrieve_library, symbols
-from sgsr.data import candidate_id, normalize_sig, target_of, trace_from_job
+from sgsr.data import candidate_id, target_of, trace_from_job
 
 
 def _verify_ok(result: dict) -> bool:
@@ -250,35 +249,6 @@ class RoundReport:
         }
 
 
-# ─────────────────────────── HTTP 小工具 ───────────────────────────
-
-
-def _post(url: str, payload: dict, timeout: float = 300.0) -> dict:
-    """软失败 POST（错误收进 `{"error": ...}`）。HTTP 实现见 `sgsr/models/http.py`。"""
-    return soft_post_json(url, payload, timeout=timeout)
-
-
-def solve(statement: str, k: int, endpoint: str, library: list[dict] | None = None) -> list[str]:
-    """调 `/solve` 取候选证明。
-
-    **后端错误必须抛出去**：离线闭环以前把它吞成空列表，于是"服务挂了"与
-    "模型没生成出候选"在报告里长得一模一样——这与在线侧刻意区分
-    `backend_error` 的做法自相矛盾（审计点名的失真来源）。
-    """
-    payload: dict = {"statement": statement, "num_samples": k}
-    if library:
-        payload["library"] = library
-    response = _post(endpoint, payload)
-    error = response.get("error") if isinstance(response, dict) else None
-    if isinstance(error, dict):
-        raise BackendUnavailable(
-            f"{error.get('code', 'error')}: {error.get('message', '')}"
-        )
-    if not isinstance(response, dict):
-        raise BackendUnavailable(f"/solve 响应不是对象：{str(response)[:200]}")
-    return [p.get("proof", "") for p in (response.get("proofs") or []) if p.get("proof", "").strip()]
-
-
 # ─────────────────────────── 闭环主体 ───────────────────────────
 
 
@@ -309,12 +279,12 @@ class RoundRunner:
         self.materialize_factory = materialize_factory or lean_server_factory
         self.log = log
         self._solved_prev: set[str] | None = None
-        # 每轮会起几次 `lean` 子进程（= 几次 Mathlib 导入）。导入是本项目最贵的固定成本，
-        # 必须把它记录进报告，否则"一轮要多久"无法解释也无法优化。
+        # 主路径每轮只开一个 Lean 会话；这里统计会话内批次数，用于发现执行路径回退。
         self._batches = 0
 
     # ---- ① 采轨迹 ----
-    def collect(self, targets: list[dict], library: list[dict], report: RoundReport | None = None,
+    def collect(self, targets: list[dict], library: list[dict], server,
+                report: RoundReport | None = None,
                 exposed: set[str] | None = None
                 ) -> tuple[list[dict], list[dict], list[dict]]:
         """在目标集上跑 Solver → 记录每条候选证明的轨迹（含子目标签名）。
@@ -331,7 +301,7 @@ class RoundRunner:
         backend_errors: list[dict] = []
         injected: list[int] = []
         for target in targets:
-            # **按目标**注入：走检索层（符号重叠 + 复用密度），而不是"全轮公用的前 N 条"。
+            # **按目标**注入：先做相关性过滤，再在相关候选中看复用密度。
             # 规格 2.2 的分层检索本来就该在求解前对**当前命题**取库；在线路径
             # （`prover.retrieve`）一直是这么做的，离线闭环以前没有，于是提示词里塞的是
             # 库里最早那 12 条（与当前目标无关），模型自然不会引用。
@@ -346,8 +316,14 @@ class RoundRunner:
                 # 依据的就是这个集合（不是"库里有就算有过机会"）。
                 exposed.update(str(p.name) for p in per_target_library)
             try:
-                proofs = solve(target["statement"], self.config.k_solve,
-                               self.config.solve_endpoint, library=prompt_items)
+                proofs, _ = solve_candidates(
+                    self.config.solve_endpoint,
+                    target["statement"],
+                    self.config.k_solve,
+                    library=prompt_items,
+                    prompt_mode="measurement",
+                    sample_salt=f"round{self.config.round_index}:{target['id']}",
+                )
             except BackendUnavailable as exc:
                 backend_errors.append({"target": target["id"], "error": str(exc)})
                 continue
@@ -367,11 +343,10 @@ class RoundRunner:
         traces: list[dict] = []
         trace_errors = 0
         if attempts:
-            with self.lean_server_factory(len(attempts)) as server:
-                jobs = [{"id": a["id"], "target": a["target"], "cmd": "trace",
-                         "stmt": a["statement"], "proof": a["proof"]} for a in attempts]
-                responses = server.batch(jobs)
-                self._batches += 1
+            jobs = [{"id": a["id"], "target": a["target"], "cmd": "trace",
+                     "stmt": a["statement"], "proof": a["proof"]} for a in attempts]
+            responses = server.batch(jobs)
+            self._batches += 1
             for attempt in attempts:
                 # 同样的纪律：轨迹批也可能出现"响应缺失"。那意味着这条候选的判定**未知**，
                 # 不能当成"证明没过"（那会污染需求统计与复用测量），单列并跳过。
@@ -445,7 +420,8 @@ class RoundRunner:
         return out, backend_errors
 
     # ---- ④ 判据层：门检 + 硬门 ----
-    def screen(self, candidates: list[dict], library: list[dict], report: RoundReport) -> list[dict]:
+    def screen(self, candidates: list[dict], library: list[dict], report: RoundReport,
+               server) -> list[dict]:
         """门检 + 硬门（非平凡 ∧ 新颖）+ **相关度**。
 
         相关度过滤（规格 5.3 节）：候选必须提到父目标里出现过的至少一个符号，
@@ -455,15 +431,14 @@ class RoundRunner:
         if not candidates:
             return []
         against = [c["stmt"] for c in library]
-        with self.lean_server_factory(3 * len(candidates)) as server:
-            jobs = []
-            for cand in candidates:
-                jobs.append({"id": f"c:{cand['key']}", "cmd": "check", "stmt": cand["stmt"]})
-                jobs.append({"id": f"t:{cand['key']}", "cmd": "trivial", "stmt": cand["stmt"]})
-                jobs.append({"id": f"n:{cand['key']}", "cmd": "novelty", "stmt": cand["stmt"],
-                             "against": [cand["target_statement"], *against]})
-            responses = server.batch(jobs)
-            self._batches += 1
+        jobs = []
+        for cand in candidates:
+            jobs.append({"id": f"c:{cand['key']}", "cmd": "check", "stmt": cand["stmt"]})
+            jobs.append({"id": f"t:{cand['key']}", "cmd": "trivial", "stmt": cand["stmt"]})
+            jobs.append({"id": f"n:{cand['key']}", "cmd": "novelty", "stmt": cand["stmt"],
+                         "against": [cand["target_statement"], *against]})
+        responses = server.batch(jobs)
+        self._batches += 1
 
         survivors: list[dict] = []
         protocol_errors = 0
@@ -515,13 +490,19 @@ class RoundRunner:
         return survivors
 
     # ---- ⑤ 求解 + ⑥ 验证 + ⑦ 软分 ----
-    def prove_verify_measure(self, survivors: list[dict], report: RoundReport) -> list[dict]:
+    def prove_verify_measure(self, survivors: list[dict], report: RoundReport,
+                             server) -> list[dict]:
         verified: list[dict] = []
         if not survivors:
             return verified
         for cand in survivors:
-            proofs = solve(cand["stmt"], self.config.k_solve,
-                           self.config.solve_endpoint, library=None)
+            proofs, _ = solve_candidates(
+                self.config.solve_endpoint,
+                cand["stmt"],
+                self.config.k_solve,
+                library=None,
+                sample_salt=f"round{self.config.round_index}:candidate:{cand['key']}",
+            )
             cand["proofs"] = proofs
             report.funnel["proof_candidates"] = report.funnel.get("proof_candidates", 0) + len(proofs)
 
@@ -533,9 +514,8 @@ class RoundRunner:
             {"id": f"v:{c['key']}:{i}", "cmd": "dependencies", "stmt": c["stmt"], "proof": proof}
             for c in survivors for i, proof in enumerate(c["proofs"])
         ]
-        with self.lean_server_factory(len(verify_jobs)) as server:
-            responses = server.batch(verify_jobs)
-            self._batches += 1
+        responses = server.batch(verify_jobs)
+        self._batches += 1
 
         for cand in survivors:
             ok_proof = None
@@ -758,7 +738,17 @@ class RoundRunner:
 
     # ---- ⑩ 一轮 ----
     def run_round(self) -> RoundReport:
+        """运行一轮；整轮只打开一个主 Lean 会话。
+
+        物化生成库仍使用独立的基础-import 会话，因为它必须排除生成库自身。下一轮再
+        打开新主会话，才能加载刚发布的快照；跨轮复用旧会话会看不到新常量。
+        """
+        with self.lean_server_factory(1) as server:
+            return self._run_round_in(server)
+
+    def _run_round_in(self, server) -> RoundReport:
         started = time.perf_counter()
+        batches_before = int(getattr(server, "batch_count", 0))
         cfg = self.config
         report = RoundReport(round_index=cfg.round_index,
                              started_at=datetime.now(timezone.utc).isoformat())
@@ -779,7 +769,9 @@ class RoundRunner:
 
         # ① 采轨迹（"无库"臂天然来自第一轮；之后各轮的提示词里已有上一轮的库）
         exposed: set[str] = set()
-        traces, attempts, solve_errors = self.collect(targets, lib_for_prompt, report, exposed)
+        traces, attempts, solve_errors = self.collect(
+            targets, lib_for_prompt, server, report, exposed
+        )
         if solve_errors:
             # 装置故障要单列：把它混进"没解出"会让解出率凭空变低。
             report.reasons["backend_error:solve"] = len(solve_errors)
@@ -836,10 +828,10 @@ class RoundRunner:
             self.log(f"[round {cfg.round_index}] 出题端点报错 {len(conjecture_errors)} 次")
 
         # ④ 判据层
-        survivors = self.screen(candidates, library, report)
+        survivors = self.screen(candidates, library, report, server)
 
         # ⑤⑥⑦ 求解 / 验证 / 软分
-        verified = self.prove_verify_measure(survivors, report)
+        verified = self.prove_verify_measure(survivors, report, server)
 
         # ⑧ 复用记账 + 曝光计数 + 淘汰（写回库），再按探索额度准入
         # 曝光计数用**本轮真的被注入过的名字**（`collect` 里按目标检索得到）。
@@ -858,7 +850,8 @@ class RoundRunner:
         report.library_after = [row["stmt"] for row in library_after]
         report.funnel["library_written"] = written
         report.funnel["library_size"] = len(library_after)
-        report.funnel["lean_batches"] = self._batches
+        report.funnel["lean_batches"] = int(getattr(server, "batch_count", 0)) - batches_before
+        report.funnel["lean_main_sessions"] = 1
         report.funnel["reuse_measured"] = {k: sorted(v) for k, v in sorted(cited.items())}
         report.timing_s = time.perf_counter() - started
         self.log(f"[round {cfg.round_index}] 入库 {written} 条 → 库 {len(library_after)} 条；"

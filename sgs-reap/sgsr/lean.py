@@ -49,6 +49,64 @@ class LeanServerError(RuntimeError):
     pass
 
 
+GENERATED_LIBRARY_MODULE = "SgsLean.GeneratedLibrary"
+
+
+def _has_library_rows(path: str | Path | None) -> bool:
+    """库文件是否真的含有条目；空文件不算有库。"""
+    if path is None:
+        return False
+    target = Path(path)
+    try:
+        return bool(target.read_text(encoding="utf-8").strip())
+    except OSError:
+        return False
+
+
+def parse_imports(imports: str) -> list[str]:
+    """把 CLI/环境变量里的逗号分隔 import 规范化为模块列表。"""
+    raw = (imports or "").strip()
+    if not raw or raw.lower() == "none":
+        return []
+    out: list[str] = []
+    for part in raw.split(","):
+        module = part.strip()
+        if module and module not in out:
+            out.append(module)
+    return out
+
+
+def resolve_imports(
+    library_path: str | Path | None,
+    requested: str | None = None,
+) -> str:
+    """全仓库唯一的验证环境 import 决策。
+
+    未显式指定时，有库自动使用 ``Mathlib,SgsLean.GeneratedLibrary``，无库只用
+    ``Mathlib``。显式指定仍会校验：只要提示词可能暴露库常量，验证环境就必须能看到
+    生成库。这样 CLI 不再各自复制一套容易漂移的判断。
+    """
+    has_library = _has_library_rows(library_path)
+    if requested is None:
+        modules = ["Mathlib"]
+        if has_library:
+            modules.append(GENERATED_LIBRARY_MODULE)
+    else:
+        modules = parse_imports(requested)
+    if has_library and GENERATED_LIBRARY_MODULE not in modules:
+        raise ValueError(
+            f"库 {Path(library_path).name if library_path else '<unknown>'} 非空，"
+            f"验证环境必须 import {GENERATED_LIBRARY_MODULE}"
+        )
+    return ",".join(modules) if modules else "none"
+
+
+def materialize_imports(imports: str) -> str:
+    """生成 ``GeneratedLibrary.lean`` 时使用的基础 import，排除自导入。"""
+    modules = [m for m in parse_imports(imports) if m != GENERATED_LIBRARY_MODULE]
+    return ",".join(modules) if modules else "none"
+
+
 # 心跳预算：**单条作业一份，与批大小无关**
 # ----------------------------------------
 # 历史（phase17–20 的坑）：Lean 的心跳计数器**按 command 累计**，而当时一整批作业
@@ -255,16 +313,9 @@ class LeanServer:
     def verify_all(self, items: list[dict], chunk: int = 0) -> dict[str, dict]:
         """`items` = [{id, stmt, proof}, ...]；按 chunk 分批。
 
-        **`chunk=0`（默认）表示"一次全喂"**。原因：服务端每处理一个 flush 都会
-        **新起一个 `lean` 子进程**（`Server.runBatch`），而每个子进程都要重新导入一次
-        Mathlib（本机实测 ≈2 min 热 / ≈8 min 冷）。分 5 批就白付 5 次导入——
-        phase18 的 164 条候选跑了 2549 s，其中相当一部分是导入。
-
-        安全性由"逐条落盘"保证（`Server.runJobs` 每处理完一条就写 `out.json`）：
-        即使某个候选把子进程打崩，也只会丢它自己那一条，不会丢整批。
-
-        真正彻底的修法是让子进程跨 flush 常驻（真正的 REPL），那是后续工作；
-        在"请求可以一次算出来"的场景下，一次全喂已经等价。
+        ``chunk=0``（默认）表示一次提交。现在同一个 ``LeanServer`` 的所有批次共用
+        一个常驻 ``lean`` 子进程，分块不会重复导入 Mathlib；保留 ``chunk`` 只用于
+        限制单个协议文件大小，不再承担性能补丁的职责。
         """
         if chunk <= 0:
             chunk = max(1, len(items))

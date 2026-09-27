@@ -225,6 +225,9 @@ def solve_prompt(
     statement: str,
     num_samples: int,
     library: list[dict] | None = None,
+    *,
+    mode: str = "product",
+    sample_salt: str | None = None,
 ) -> str:
     """整篇证明的提示词：输出 tactic 脚本，不输出定理声明。
 
@@ -241,23 +244,33 @@ def solve_prompt(
         f"{statement.strip()}\n"
         "```\n"
     ]
+    if mode not in {"product", "measurement"}:
+        raise ValueError(f"unknown solve prompt mode: {mode}")
     if library:
         blocks = "\n".join(
             f"- `{item.get('name', '?')}` : {str(item.get('stmt', '')).strip()}"
             for item in library
             if str(item.get("stmt", "")).strip()
         )
-        parts.append(
-            "\nAVAILABLE LEMMAS: the following lemmas are ALREADY PROVED and available in the "
-            "environment under exactly these names (they are NOT in Mathlib, so Mathlib will not "
-            "find them for you). **Check them FIRST**: if one of them (possibly after `intro`/`rw`) "
-            "closes or shortens the goal, cite it by name — `exact sgs_lem_xxx`, "
-            "`rw [sgs_lem_xxx]`, `simpa using sgs_lem_xxx …` — instead of re-deriving the fact "
-            "from scratch. Citing an available lemma is cheaper and much less error-prone than "
-            "guessing Mathlib names. They are optional only in the sense that you may ignore them "
-            "when none applies:\n"
-            f"{blocks}\n"
-        )
+        if mode == "measurement":
+            parts.append(
+                "\nAVAILABLE LEMMAS: these verified lemmas are present in the environment under "
+                "the names shown below. You may use any lemma when it is mathematically useful. "
+                "Do not prefer or avoid a lemma merely because it appears in this list:\n"
+                f"{blocks}\n"
+            )
+        else:
+            parts.append(
+                "\nAVAILABLE LEMMAS: the following lemmas are ALREADY PROVED and available in the "
+                "environment under exactly these names (they are NOT in Mathlib, so Mathlib will not "
+                "find them for you). **Check them FIRST**: if one of them (possibly after `intro`/`rw`) "
+                "closes or shortens the goal, cite it by name — `exact sgs_lem_xxx`, "
+                "`rw [sgs_lem_xxx]`, `simpa using sgs_lem_xxx …` — instead of re-deriving the fact "
+                "from scratch. Citing an available lemma is cheaper and much less error-prone than "
+                "guessing Mathlib names. They are optional only in the sense that you may ignore them "
+                "when none applies:\n"
+                f"{blocks}\n"
+            )
     parts.append(
         f"\nGive {num_samples} DIFFERENT proof(s) of it. Each proof must satisfy ALL of:\n"
         "1. It is a TACTIC SCRIPT — the body of `by ...` only. No `theorem`/`lemma`/`example` "
@@ -272,6 +285,9 @@ def solve_prompt(
         "Output each proof in its own ```lean4 code block, one proof per block, "
         "and put nothing else inside the block."
     )
+    if sample_salt:
+        # 只用于打破代理缓存；不携带轮次结论、引理偏好或答案信息。
+        parts.append(f"\nSampling nonce (ignore semantically): {sample_salt}\n")
     return "".join(parts)
 
 

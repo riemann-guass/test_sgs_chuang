@@ -40,7 +40,12 @@ from sgsr.pipeline.runner import (  # noqa: E402
     summarize,
 )
 from sgsr.pipeline.library import LibrarySourceError, assert_clean_sources  # noqa: E402
-from sgsr.lean import LeanServer, budget_for_jobs  # noqa: E402
+from sgsr.lean import (  # noqa: E402
+    LeanServer,
+    budget_for_jobs,
+    materialize_imports,
+    resolve_imports,
+)
 
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
@@ -87,7 +92,8 @@ def main() -> int:
     parser.add_argument("--generated", default=str(DEFAULT_GENERATED))
     parser.add_argument("--solve-endpoint", default="http://127.0.0.1:8765/solve")
     parser.add_argument("--conjecture-endpoint", default="http://127.0.0.1:8765/conjecture")
-    parser.add_argument("--imports", default="Mathlib")
+    parser.add_argument("--imports", default=None,
+                        help="验证环境 import；默认按库是否非空自动决定")
     parser.add_argument("--reset-library", action="store_true",
                         help="开始前清空库（离线冒烟用；真跑慎用）")
     parser.add_argument("--materialize-only", action="store_true",
@@ -115,6 +121,9 @@ def main() -> int:
         return 2
     library_path = Path(args.library)
     generated_path = Path(args.generated)
+    if args.reset_library and library_path.exists():
+        library_path.unlink()
+        print(f"[round] 已清空库：{library_path}")
     if library_path.exists():
         # 读库时复核来源：库里出现 D/T 来源的引理就不许继续（硬约束 1）
         try:
@@ -122,30 +131,19 @@ def main() -> int:
         except LibrarySourceError as exc:
             print(f"[round] {exc}")
             return 2
-    # ── 处理臂的 import 守卫（phase22 踩过：库在 Python 里非空、Lean 环境里没有）──
-    # 库非空却不 import `SgsLean.GeneratedLibrary` 时，提示词里给的 `sgs_lem_*` 名字
-    # 在验证环境里根本不存在：模型照抄名字 → `unknown identifier` → 表现成"库没用"。
-    # 这种假结论不能流进报告，所以宁可直接拒绝启动。
     library_nonempty = library_path.exists() and library_path.read_text(encoding="utf-8").strip()
-    has_generated_import = any("GeneratedLibrary" in part for part in args.imports.split(","))
-    if library_nonempty and not has_generated_import and not args.imports.strip().lower() == "none":
-        print(f"[round] 拒绝：库 {library_path.name} 非空，但 --imports 里没有 "
-              f"`SgsLean.GeneratedLibrary`（当前 {args.imports!r}）。")
-        print("        提示词会给出 `sgs_lem_*` 名字，而 Lean 环境里没有这些常量，")
-        print("        于是所有引用都报 unknown identifier、被误读成'库没用'。")
-        print("        请用：--imports Mathlib,SgsLean.GeneratedLibrary")
+    try:
+        imports = resolve_imports(library_path, args.imports)
+    except ValueError as exc:
+        print(f"[round] import 配置错误：{exc}")
         return 2
     if library_nonempty and not generated_path.exists():
         print(f"[round] 警告：库非空但物化文件不存在（{args.generated}）——"
               f"先跑 `scripts/run_round.py --materialize-only` 重建它")
-    if args.reset_library and library_path.exists():
-        library_path.unlink()
-        print(f"[round] 已清空库：{library_path}")
-
     config = RoundConfig(
         solve_endpoint=args.solve_endpoint,
         conjecture_endpoint=args.conjecture_endpoint,
-        imports=args.imports,
+        imports=imports,
         k_solve=args.k,
         n_conjecture=args.n,
         library_budget=args.library_budget,
@@ -167,12 +165,10 @@ def main() -> int:
         workdir=run_dir,
         library_path=library_path,
         generated_path=generated_path,
-        lean_server_factory=make_factory(args.imports),
+        lean_server_factory=make_factory(imports),
         # 写物化文件的那次会话用**基础 import**：生成库自己不能出现在生成文件的
         # import 里（自我循环导入，编译必失败）。
-        materialize_factory=make_factory(
-            ",".join(m for m in args.imports.split(",") if "GeneratedLibrary" not in m) or "none"
-        ),
+        materialize_factory=make_factory(materialize_imports(imports)),
     )
 
     started = time.perf_counter()

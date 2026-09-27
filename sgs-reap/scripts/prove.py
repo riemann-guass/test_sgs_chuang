@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sgsr.pipeline.prover import Budget, Prover  # noqa: E402
+from sgsr.lean import resolve_imports  # noqa: E402
 
 DEFAULT_LIBRARY = ROOT / "experiments" / "library.jsonl"
 DEFAULT_ENDPOINT = "http://127.0.0.1:8770/solve"
@@ -63,9 +64,10 @@ def main(argv: list[str] | None = None) -> int:
         library_path = Path(args.library)
     elif args.library is None and DEFAULT_LIBRARY.exists():
         library_path = DEFAULT_LIBRARY
-    has_library = bool(library_path and library_path.exists()
-                       and library_path.read_text(encoding="utf-8").strip())
-    imports = args.imports or ("Mathlib,SgsLean.GeneratedLibrary" if has_library else "Mathlib")
+    try:
+        imports = resolve_imports(library_path, args.imports)
+    except ValueError as exc:
+        raise SystemExit(f"[prove] import 配置错误：{exc}") from exc
 
     prover = Prover(
         endpoint=args.endpoint,

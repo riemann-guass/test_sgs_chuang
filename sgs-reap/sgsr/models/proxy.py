@@ -186,6 +186,10 @@ def handle_solve(req: dict) -> dict:
     if not statement.strip() and not raw_prompt.strip():
         raise ValueError("statement 与 prompt 不能同时为空")
     num_samples = max(1, min(8, int(req.get("num_samples", 4) or 4)))
+    prompt_mode = str(req.get("prompt_mode") or "product")
+    if prompt_mode not in {"product", "measurement"}:
+        raise ValueError("prompt_mode 必须是 product 或 measurement")
+    sample_salt = str(req.get("sample_salt") or "").strip() or None
 
     # 记忆注入（阶段 D/E）：库里的引理已在 Lean 环境中物化成有名常量，
     # 这里把它们的**名字 + 语句**告诉模型，让它可以直接引用。
@@ -197,7 +201,13 @@ def handle_solve(req: dict) -> dict:
     ][:16]
     # `prompt` 优先于 `statement`：它是 repair 送进来的**完整**提示词（含失败码与错误原文），
     # 用 `statement` 重拼一次会把那些诊断全丢掉——那正是 repair 与"再采样一次"的区别。
-    prompt = raw_prompt.strip() or prompts.solve_prompt(statement, num_samples, library=library)
+    prompt = raw_prompt.strip() or prompts.solve_prompt(
+        statement,
+        num_samples,
+        library=library,
+        mode=prompt_mode,
+        sample_salt=sample_salt,
+    )
     with BACKEND_LOCK:
         text, meta = BACKEND.chat(
             [{"role": "user", "content": prompt}],
@@ -219,6 +229,8 @@ def handle_solve(req: dict) -> dict:
             "endpoint": "solve",
             "num_samples": num_samples,
             "library": len(library),
+            "prompt_mode": prompt_mode,
+            "sample_salt": sample_salt,
             "custom_prompt": bool(raw_prompt.strip()),
             "parsed": len(parsed),
             "kept": len(proofs),

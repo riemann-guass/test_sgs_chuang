@@ -1,5 +1,5 @@
 {
-  "passed": 72,
+  "passed": 82,
   "failed": [],
   "checks": [
     {
@@ -331,6 +331,56 @@
       "name": "提示词：有范例时出现 LIBRARY EXCERPTS 且无范例时不出现",
       "ok": true,
       "detail": ""
+    },
+    {
+      "name": "提示词：产品模式可主动建议检查库",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "提示词：测量模式中性陈列，不诱导引用",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "提示词：轮次盐进入提示词以打破重复采样缓存",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "import：空库只导入 Mathlib",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "import：非空库自动导入生成库",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "import：反向对照——非空库却漏生成库会被拒绝",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "import：物化环境剔除生成库自身",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "检索：相关性先于复用密度",
+      "ok": true,
+      "detail": "['sgs_lem_relevant']"
+    },
+    {
+      "name": "检索：反向对照——高复用无关引理不得进提示词",
+      "ok": true,
+      "detail": "['sgs_lem_relevant']"
+    },
+    {
+      "name": "执行引擎：离线一轮只开一个主 Lean 会话",
+      "ok": true,
+      "detail": "events=['enter', 'exit']"
     },
     {
       "name": "分档：兜底命中 = easy",

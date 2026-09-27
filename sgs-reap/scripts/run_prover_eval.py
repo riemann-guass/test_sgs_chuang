@@ -54,7 +54,7 @@ sys.path.insert(0, str(ROOT))
 
 from sgsr.pipeline.prover import Budget, Prover  # noqa: E402
 from sgsr.pipeline.prover import git_commit, library_hash, usage_total  # noqa: E402
-from sgsr.lean import preflight_in_session  # noqa: E402
+from sgsr.lean import preflight_in_session, resolve_imports  # noqa: E402
 
 DATA = ROOT / "data"
 REGISTERED = {
@@ -265,12 +265,10 @@ def main(argv: list[str] | None = None) -> int:
         library_path = Path(args.library)
     elif args.library is None and DEFAULT_LIBRARY.exists():
         library_path = DEFAULT_LIBRARY
-    # **空文件不算有库**：`run_round` 跑完会留下一个 0 字节的库文件，
-    # 若只判 `exists()`，就会给无库臂挂上 `import SgsLean.GeneratedLibrary`，
-    # 于是"基线臂"其实动了一个额外的模块（口径不干净）。
-    has_library = bool(library_path and library_path.exists()
-                       and library_path.read_text(encoding="utf-8").strip())
-    imports = args.imports or ("Mathlib,SgsLean.GeneratedLibrary" if has_library else "Mathlib")
+    try:
+        imports = resolve_imports(library_path, args.imports)
+    except ValueError as exc:
+        raise SystemExit(f"[eval] import 配置错误：{exc}") from exc
     if args.no_cheap:
         import sgsr.pipeline.prover as prover_module  # noqa: PLC0415
         prover_module.CHEAP_DISABLED = True

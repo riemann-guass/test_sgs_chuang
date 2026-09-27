@@ -201,6 +201,46 @@ def _add_usage(total: dict, delta: dict) -> None:
         total[key] = int(total.get(key, 0)) + int(value or 0)
 
 
+def solve_candidates(
+    endpoint: str,
+    stmt: str,
+    k: int,
+    library: list[dict] | None = None,
+    *,
+    prompt_mode: str = "product",
+    sample_salt: str | None = None,
+) -> tuple[list[str], dict]:
+    """全仓库唯一的 ``/solve`` 客户端。
+
+    在线证明、离线建库和对照实验必须经过这里，才能统一后端错误、重试、候选解析，
+    以及测量提示词/轮次盐字段。调用方不得把 503 吞成“零候选”。
+    """
+    payload: dict = {
+        "statement": stmt,
+        "num_samples": k,
+        "prompt_mode": prompt_mode,
+    }
+    if library:
+        payload["library"] = library
+    if sample_salt:
+        payload["sample_salt"] = sample_salt
+    try:
+        data = post_json(endpoint, payload)
+    except BackendUnavailable:
+        data = post_json(endpoint, payload)
+    error = data.get("error") if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        raise BackendUnavailable(f"{error.get('code', 'error')}: {error.get('message', '')}")
+    if not isinstance(data, dict):
+        raise BackendUnavailable(f"/solve 响应不是对象：{str(data)[:200]}")
+    proofs = [
+        str(item.get("proof", "")).strip()
+        for item in (data.get("proofs") or [])
+        if isinstance(item, dict) and str(item.get("proof", "")).strip()
+    ]
+    return proofs, (data.get("meta") or {})
+
+
 def library_hash(path: str | Path | None) -> str:
     """库文件的 sha256（前 16 位）。规格附录 A 的 `library_hash`。
 
@@ -283,23 +323,7 @@ class Prover:
 
     # ---- 步骤 5 / 7 的模型侧 ----
     def solve(self, stmt: str, k: int, library: list[dict] | None = None) -> tuple[list[str], dict]:
-        """调 `/solve`；后端不可用时**重试一次**，仍失败则抛 `BackendUnavailable`。"""
-        payload: dict = {"statement": stmt, "num_samples": k}
-        if library:
-            payload["library"] = library
-        try:
-            data = post_json(self.endpoint, payload)
-        except BackendUnavailable:
-            data = post_json(self.endpoint, payload)  # 规格 3.5：重试一次
-        error = data.get("error") if isinstance(data, dict) else None
-        if isinstance(error, dict):
-            raise BackendUnavailable(f"{error.get('code', 'error')}: {error.get('message', '')}")
-        proofs = [
-            str(item.get("proof", "")).strip()
-            for item in (data.get("proofs") or [])
-            if str(item.get("proof", "")).strip()
-        ]
-        return proofs, (data.get("meta") or {})
+        return solve_candidates(self.endpoint, stmt, k, library)
 
     def repair(self, stmt: str, failed: list[dict], k: int,
                library: list[dict] | None = None) -> tuple[list[str], dict]:
