@@ -17,7 +17,9 @@
 
 ## 数据角色（见 `docs/data-protocol.md`，这里用代码强制）
 
-* `curriculum`（C）：**唯一**允许进库的数据。采轨迹、挖需求、猜想都只在这里做；
+* `C-build`：只做基线轨迹、需求挖掘和候选产生；
+* `C-measure`：只做试用库曝光和 constants 复用计数；
+  两者同时按目标身份与命题指纹强制不相交；
 * `dev`（D）：只用于调参与确认装置，**不进库、不进需求**；
 * `test`（T）：只在最终评测时读一次。本模块默认**拒绝**读它（`--allow-test` 才放行，
   且放行时不给建库）。
@@ -40,6 +42,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from dataclasses import dataclass, field
@@ -87,7 +90,9 @@ def _verify_ok(result: dict) -> bool:
 # ─────────────────────────── 数据角色 ───────────────────────────
 
 
-ROLE_CURRICULUM = "curriculum"
+ROLE_CURRICULUM = "curriculum"  # 历史兼容；Runner 不再接受未拆分的 C
+ROLE_C_BUILD = "c-build"
+ROLE_C_MEASURE = "c-measure"
 ROLE_DEV = "dev"
 ROLE_TEST = "test"
 
@@ -153,7 +158,7 @@ class TargetSet:
 
     def assert_buildable(self) -> None:
         """只有 C 允许进库/挖需求。**这个方法必须被真的调用**（审计 P0 第 5 条）。"""
-        if self.role != ROLE_CURRICULUM:
+        if self.role not in {ROLE_CURRICULUM, ROLE_C_BUILD, ROLE_C_MEASURE}:
             raise DataRoleError(
                 f"{self.path.name} 的角色是 {self.role}；"
                 "按 docs/data-protocol.md，只有 curriculum 可以进库/挖需求"
@@ -180,6 +185,77 @@ class TargetSet:
 
     def batch(self, limit: int = 0) -> list[dict]:
         return self.rows[:limit] if limit else list(self.rows)
+
+    def identities(self) -> set[str]:
+        """返回稳定目标身份；缺 id 时用命题内容指纹，不让空字符串合并。"""
+        out: set[str] = set()
+        for row in self.rows:
+            target_id = str(row.get("id") or "").strip()
+            stmt = " ".join(str(row.get("statement") or row.get("stmt") or "").split())
+            out.add(target_id or "stmt:" + hashlib.sha256(stmt.encode("utf-8")).hexdigest())
+        return out
+
+    def statement_fingerprints(self) -> set[str]:
+        return {
+            hashlib.sha256(
+                " ".join(str(row.get("statement") or row.get("stmt") or "").split()).encode("utf-8")
+            ).hexdigest()
+            for row in self.rows
+        }
+
+    def content_hash(self) -> str:
+        payload = json.dumps(self.rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def assert_disjoint_curriculum(c_build: TargetSet, c_measure: TargetSet) -> None:
+    """C-build/C-measure 必须同时按目标身份和命题内容不相交。"""
+    if c_build.role != ROLE_C_BUILD or c_measure.role != ROLE_C_MEASURE:
+        raise DataRoleError("Runner 需要独立的 c-build 与 c-measure 输入")
+    c_build.assert_buildable()
+    c_measure.assert_buildable()
+    id_overlap = c_build.identities() & c_measure.identities()
+    stmt_overlap = c_build.statement_fingerprints() & c_measure.statement_fingerprints()
+    if id_overlap or stmt_overlap:
+        examples = sorted(id_overlap)[:3]
+        raise DataRoleError(
+            "C-build 与 C-measure 存在同源目标；禁止用候选来源集合做晋升测量"
+            + (f"（例：{examples}）" if examples else "（命题内容重复）")
+        )
+
+
+def split_curriculum(curriculum: TargetSet, seed: str = "sg-lean-c-split-v1",
+                     build_percent: int = 60) -> tuple[TargetSet, TargetSet, dict]:
+    """用稳定内容哈希把 C 确定性拆成 C-build/C-measure，不写派生清单。"""
+    curriculum.assert_buildable()
+    if curriculum.role != ROLE_CURRICULUM:
+        raise DataRoleError("自动划分的输入必须是 curriculum 角色")
+    if not 1 <= build_percent <= 99:
+        raise DataRoleError("build_percent 必须在 1..99")
+    build_rows: list[dict] = []
+    measure_rows: list[dict] = []
+    for row in curriculum.rows:
+        identity = str(row.get("id") or row.get("statement") or row.get("stmt") or "")
+        bucket = int(hashlib.sha256(f"{seed}\0{identity}".encode("utf-8")).hexdigest()[:8], 16) % 100
+        (build_rows if bucket < build_percent else measure_rows).append(dict(row))
+    if not build_rows or not measure_rows:
+        raise DataRoleError("确定性划分产生了空集；请增加 C 规模或调整划分比例")
+    c_build = TargetSet(ROLE_C_BUILD, curriculum.path, build_rows)
+    c_measure = TargetSet(ROLE_C_MEASURE, curriculum.path, measure_rows)
+    assert_disjoint_curriculum(c_build, c_measure)
+    manifest = {
+        "schema": 1,
+        "algorithm": "sha256(seed\\0target_identity)-bucket-mod-100",
+        "seed": seed,
+        "build_percent": build_percent,
+        "source": str(curriculum.path),
+        "source_hash": curriculum.content_hash(),
+        "c_build": {"rows": len(build_rows), "hash": c_build.content_hash()},
+        "c_measure": {"rows": len(measure_rows), "hash": c_measure.content_hash()},
+        "identity_overlap": 0,
+        "statement_overlap": 0,
+    }
+    return c_build, c_measure, manifest
 
 
 # ─────────────────────────── 配置与记录 ───────────────────────────
@@ -209,7 +285,8 @@ class RoundConfig:
     prompt_slots: int = 16
     #: 本库的来源语料标识（写进每条引理的 `source_corpus`，供事后审计）
     source_corpus: str = "C1"
-    target_limit: int = 0             # 本轮用多少条 C 目标（0 = 全部）
+    target_limit: int = 0             # 本轮用多少条 C-build 目标（0 = 全部）
+    measure_target_limit: int = 0     # 本轮用多少条 C-measure 目标（0 = 全部）
     min_proof_steps: int = 2          # 软分：证明过短（≤ 该步数）的引理记 warning
 
 
@@ -260,7 +337,8 @@ class RoundRunner:
 
     def __init__(
         self,
-        curriculum: TargetSet,
+        c_build: TargetSet,
+        c_measure: TargetSet,
         config: RoundConfig,
         workdir: Path,
         library_path: Path,
@@ -269,7 +347,9 @@ class RoundRunner:
         materialize_factory=None,
         log=print,
     ) -> None:
-        self.curriculum = curriculum
+        assert_disjoint_curriculum(c_build, c_measure)
+        self.c_build = c_build
+        self.c_measure = c_measure
         self.config = config
         self.workdir = workdir
         self.library_path = library_path
@@ -288,7 +368,8 @@ class RoundRunner:
     # ---- ① 采轨迹 ----
     def collect(self, targets: list[dict], library: list[dict], server,
                 report: RoundReport | None = None,
-                exposed: set[str] | None = None
+                exposed: dict[str, set[str]] | None = None,
+                sample_scope: str = "build",
                 ) -> tuple[list[dict], list[dict], list[dict]]:
         """在目标集上跑 Solver → 记录每条候选证明的轨迹（含子目标签名）。
 
@@ -315,9 +396,9 @@ class RoundRunner:
             prompt_items = [{"name": p.name, "stmt": p.statement} for p in per_target_library]
             injected.append(len(prompt_items))
             if exposed is not None:
-                # 记录"本轮真的进过提示词"的引理名——淘汰判据里的"被给过机会"
-                # 依据的就是这个集合（不是"库里有就算有过机会"）。
-                exposed.update(str(p.name) for p in per_target_library)
+                # 曝光证据精确到 (引理, 测量目标)；reuse 只接受同一对的 constants 引用。
+                for premise in per_target_library:
+                    exposed.setdefault(str(premise.name), set()).add(str(target["id"]))
             try:
                 proofs, _ = solve_candidates(
                     self.config.solve_endpoint,
@@ -325,7 +406,7 @@ class RoundRunner:
                     self.config.k_solve,
                     library=prompt_items,
                     prompt_mode="measurement",
-                    sample_salt=f"round{self.config.round_index}:{target['id']}",
+                    sample_salt=f"round{self.config.round_index}:{sample_scope}:{target['id']}",
                 )
             except BackendUnavailable as exc:
                 backend_errors.append({"target": target["id"], "error": str(exc)})
@@ -366,7 +447,8 @@ class RoundRunner:
         return traces, attempts, backend_errors
 
     # ---- ②′ 复用测量 ----
-    def measure_reuse(self, traces: list[dict]) -> dict[str, set[str]]:
+    def measure_reuse(self, traces: list[dict],
+                      exposed: dict[str, set[str]]) -> dict[str, set[str]]:
         """`reuse(l)` 的原始材料：`{引理名: {引用过它的不同目标}}`。
 
         规格 5.1 的定义是"被多少个**不同目标**的**通过验收的**证明实际引用"，
@@ -387,7 +469,7 @@ class RoundRunner:
             target = str(trace.get("target") or "")
             for constant in trace.get("constants") or []:
                 leaf = str(constant).rsplit(".", 1)[-1]
-                if leaf.startswith("sgs_lem_"):
+                if leaf.startswith("sgs_lem_") and target in exposed.get(leaf, set()):
                     cited.setdefault(leaf, set()).add(target)
         return cited
 
@@ -591,7 +673,8 @@ class RoundRunner:
         return chosen
 
     def update_library(self, report: RoundReport, cited: dict[str, set[str]],
-                       prompt_names: set[str]) -> list[dict]:
+                       exposed: dict[str, set[str]],
+                       measure_target_ids: set[str]) -> list[dict]:
         """把本轮的复用测量、曝光计数写回库，并淘汰僵尸。返回被冷存的条目。
 
         **必须落盘**：`reuse` 只留在内存里的话，淘汰读到的是"每条 reuse 都是 0"，
@@ -605,15 +688,20 @@ class RoundRunner:
             name = str(row.get("name") or name_for(str(row.get("stmt", ""))))
             row["name"] = name
             source_target = str(row.get("source_target") or "")
-            seen = set(row.get("reuse_targets") or [])
-            seen |= cited.get(name, set())
+            exposure_targets = set(row.get("exposure_targets") or [])
+            exposure_targets |= exposed.get(name, set()) & measure_target_ids
+            exposure_targets &= measure_target_ids
+            exposure_targets.discard(source_target)
+            row["exposure_targets"] = sorted(exposure_targets)
+            row["exposures"] = len(exposure_targets)
+            # 旧 reuse_targets 也重新受 C-measure + 曝光对约束；无曝光目标清单的
+            # 历史数字不能沿用，否则新协议会被旧文本命中污染。
+            seen = set(row.get("reuse_targets") or []) & exposure_targets
+            seen |= cited.get(name, set()) & exposure_targets
             seen.discard(source_target)
             row["reuse_targets"] = sorted(seen)
             row["reuse"] = len(seen)
             row["cost_tokens"] = cost_of(row)
-            if name in prompt_names:
-                row["exposures"] = int(row.get("exposures") or 0) + 1
-            row.setdefault("exposures", 0)
             current = status_of(row)
             if current == "probation" and row["reuse"] >= self.config.reuse_threshold \
                     and int(row["exposures"]) > 0:
@@ -773,7 +861,9 @@ class RoundRunner:
         cfg = self.config
         report = RoundReport(round_index=cfg.round_index,
                              started_at=datetime.now(timezone.utc).isoformat())
-        targets = self.curriculum.batch(cfg.target_limit)
+        build_targets = self.c_build.batch(cfg.target_limit)
+        measure_targets = self.c_measure.batch(cfg.measure_target_limit)
+        measure_target_ids = {str(row["id"]) for row in measure_targets}
         library = load_library(self.library_path)
         # 读库即复核来源（硬约束 1 的第二道防线）；有 D/T 来源就直接停，不继续算。
         assert_clean_sources(self.library_path)
@@ -786,21 +876,34 @@ class RoundRunner:
         for row in lib_for_prompt:
             row.setdefault("name", name_for(str(row.get("stmt", ""))))
 
-        self.log(f"[round {cfg.round_index}] 目标 {len(targets)} 条；库 {len(library)} 条")
-
-        # ① 采轨迹（"无库"臂天然来自第一轮；之后各轮的提示词里已有上一轮的库）
-        exposed: set[str] = set()
-        traces, attempts, solve_errors = self.collect(
-            targets, lib_for_prompt, server, report, exposed
+        report.funnel["c_build_targets"] = len(build_targets)
+        report.funnel["c_measure_targets"] = len(measure_targets)
+        self.log(
+            f"[round {cfg.round_index}] C-build {len(build_targets)} 条；"
+            f"C-measure {len(measure_targets)} 条；库 {len(library)} 条"
         )
-        if solve_errors:
+
+        # ① C-build 只用于需求与候选生成；基线轨迹不注入试用库。
+        build_traces, attempts, build_errors = self.collect(
+            build_targets, [], server, report, sample_scope="build"
+        )
+        if build_errors:
             # 装置故障要单列：把它混进"没解出"会让解出率凭空变低。
-            report.reasons["backend_error:solve"] = len(solve_errors)
-            report.funnel["backend_errors_solve"] = len(solve_errors)
-            self.log(f"[round {cfg.round_index}] 求解端点报错 {len(solve_errors)} 次"
-                     f"（例如 {solve_errors[0]['error'][:120]}）")
-        # ①′ 复用测量：l 被多少个**不同目标**的**通过验收的**证明实际引用
-        cited = self.measure_reuse(traces)
+            report.reasons["backend_error:build_solve"] = len(build_errors)
+            report.funnel["backend_errors_build_solve"] = len(build_errors)
+            self.log(f"[round {cfg.round_index}] C-build 求解端点报错 {len(build_errors)} 次"
+                     f"（例如 {build_errors[0]['error'][:120]}）")
+
+        # ①′ C-measure 只做中性曝光和 constants 计数，不挖需求、不产生候选。
+        exposed: dict[str, set[str]] = {}
+        measure_traces, _, measure_errors = self.collect(
+            measure_targets, lib_for_prompt, server, report, exposed, sample_scope="measure"
+        )
+        if measure_errors:
+            report.reasons["backend_error:measure_solve"] = len(measure_errors)
+            report.funnel["backend_errors_measure_solve"] = len(measure_errors)
+            self.log(f"[round {cfg.round_index}] C-measure 求解端点报错 {len(measure_errors)} 次")
+        cited = self.measure_reuse(measure_traces, exposed)
         report.funnel["cited_lemmas"] = len(cited)
         report.funnel["cited_targets"] = sum(len(v) for v in cited.values())
         # trace 作业内部已经跑过 `Verify.verify`，`TraceResult.verified` 就是结论——
@@ -809,19 +912,19 @@ class RoundRunner:
         # 与"未解目标"两个集合对不上，已解出的目标会被反复送去猜（审计 P0 第 2 条）。
         solved: set[str] = {
             str(t.get("target") or target_of(str(t.get("id"))))
-            for t in traces if t.get("verified") is True
+            for t in build_traces if t.get("verified") is True
         }
         report.solved_targets = sorted(solved)
         if self._solved_prev is not None:
             # 跨轮 cover：本轮（有库）− 上一轮（无库/旧库）。
             # 注意这是**顺序臂**，不是并行臂；最终评测仍用 run_gate_g3_real 的并行两臂。
             report.cover_delta = len(solved) - len(self._solved_prev)
-        self.log(f"[round {cfg.round_index}] 解出目标 {len(solved)}/{len(targets)}"
+        self.log(f"[round {cfg.round_index}] C-build 解出目标 {len(solved)}/{len(build_targets)}"
                  + (f"；跨轮 cover 增量 {report.cover_delta}" if report.cover_delta is not None else ""))
         self._solved_prev = solved
 
         # ② 需求
-        demand_report = self.demand(traces)
+        demand_report = self.demand(build_traces)
         report.demand = {k: demand_report[k] for k in
                          ("traces", "verified_traces", "distinct_targets", "signatures",
                           "buckets", "demand_count")}
@@ -830,7 +933,7 @@ class RoundRunner:
         demand_sigs = [e["sig"] for e in demand_report.get("top_demand", [])][: cfg.demand_limit]
 
         # ③ 猜想（条件化在未解目标 + 需求 + 库范例）
-        unsolved = [t for t in targets if t["id"] not in solved]
+        unsolved = [t for t in build_targets if t["id"] not in solved]
         if not unsolved:
             # 全部解出时**不再出题**：以前这里 `or targets` 会把已解出的目标再送一遍，
             # 白花一次调用，还让"覆盖增量"的语义变模糊。
@@ -856,7 +959,7 @@ class RoundRunner:
 
         # ⑧ 复用记账 + 曝光计数 + 淘汰（写回库），再按探索额度准入
         # 曝光计数用**本轮真的被注入过的名字**（`collect` 里按目标检索得到）。
-        evicted = self.update_library(report, cited, exposed)
+        evicted = self.update_library(report, cited, exposed, measure_target_ids)
         if evicted:
             self.log(f"[round {cfg.round_index}] 冷存 {len(evicted)} 条僵尸引理"
                      f"（reuse=0 且被给过机会）")
@@ -876,6 +979,9 @@ class RoundRunner:
         report.funnel["lean_batches"] = int(getattr(server, "batch_count", 0)) - batches_before
         report.funnel["lean_main_sessions"] = 1
         report.funnel["reuse_measured"] = {k: sorted(v) for k, v in sorted(cited.items())}
+        report.funnel["exposure_measured"] = {
+            k: sorted(v) for k, v in sorted(exposed.items())
+        }
         report.timing_s = time.perf_counter() - started
         self.log(f"[round {cfg.round_index}] 入库 {written} 条 → 库 {len(library_after)} 条；"
                  f"漏斗 {report.funnel}")

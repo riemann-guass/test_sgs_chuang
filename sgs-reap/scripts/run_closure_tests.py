@@ -60,9 +60,13 @@ from sgsr.pipeline.runner import (  # noqa: E402
     _verify_ok,
     DataRoleError,
     ROLE_CURRICULUM,
+    ROLE_C_BUILD,
+    ROLE_C_MEASURE,
     RoundReport,
     RoundRunner,
     TargetSet,
+    assert_disjoint_curriculum,
+    split_curriculum,
 )
 from sgsr.pipeline.prover import close_declaration, parse_input  # noqa: E402
 from sgsr.lean import materialize_imports, resolve_imports  # noqa: E402
@@ -419,15 +423,43 @@ def test_reuse_measurement() -> None:
         {"id": "c:t3#0", "target": "t3", "verified": True,
          "constants": ["sgs_lem_a", "sgs_lem_b"]},
     ]
-    cited = RoundRunner.measure_reuse(_Stub(), traces)
+    exposed = {"sgs_lem_a": {"t1", "t3"}, "sgs_lem_b": set()}
+    cited = RoundRunner.measure_reuse(_Stub(), traces, exposed)
     check("复用测量：按不同目标去重（t1 两篇只算 1）", cited.get("sgs_lem_a") == {"t1", "t3"},
           f"{cited}")
     check("复用测量：失败证明里的引用不算复用（t2 不在集合里）",
           "t2" not in (cited.get("sgs_lem_a") or set()), f"{cited}")
     check("复用测量：点号全名按叶子名计数（SgsLean.sgs_lem_a 也算）",
           "sgs_lem_a" in cited, f"{cited}")
-    check("复用测量：只被 1 个目标引用的引理 reuse=1", cited.get("sgs_lem_b") == {"t3"},
-          f"{cited}")
+    check("复用测量：反向对照——未对该目标曝光的引理不计 reuse",
+          "sgs_lem_b" not in cited, f"{cited}")
+
+
+def test_curriculum_split() -> None:
+    """C-build 与 C-measure 必须是稳定、无交叉的两个输入。"""
+    rows = [
+        {"id": f"c{i}", "statement": f"Nat.succ {i} = {i + 1}"}
+        for i in range(20)
+    ]
+    source = TargetSet(ROLE_CURRICULUM, Path("C.jsonl"), rows)
+    build_a, measure_a, manifest_a = split_curriculum(source, seed="fixed", build_percent=60)
+    build_b, measure_b, manifest_b = split_curriculum(source, seed="fixed", build_percent=60)
+    check("C 划分：同一种子确定性产生同一 C-build/C-measure",
+          build_a.identities() == build_b.identities()
+          and measure_a.identities() == measure_b.identities()
+          and manifest_a == manifest_b)
+    check("C 划分：两个输入身份与命题内容均无交叉",
+          not (build_a.identities() & measure_a.identities())
+          and not (build_a.statement_fingerprints() & measure_a.statement_fingerprints()))
+    rejected = False
+    try:
+        assert_disjoint_curriculum(
+            TargetSet(ROLE_C_BUILD, Path("build.jsonl"), [rows[0]]),
+            TargetSet(ROLE_C_MEASURE, Path("measure.jsonl"), [dict(rows[0])]),
+        )
+    except DataRoleError:
+        rejected = True
+    check("C 划分：反向对照——来源目标进入 C-measure 必须拒绝", rejected)
 
 
 class _Stub:
@@ -446,7 +478,8 @@ def test_reuse_persistence(tmp_root: Path) -> None:
     library_path.write_text(
         json.dumps({"stmt": stmt_a, "proof": "intro n\nrfl", "verified": True,
                     "name": name_a, "source_target": "g01", "source_corpus": "C1",
-                    "added_round": 0}, ensure_ascii=False) + "\n"
+                    "added_round": 0, "reuse_targets": ["legacy"],
+                    "exposure_targets": ["legacy"]}, ensure_ascii=False) + "\n"
         + json.dumps({"stmt": stmt_b, "proof": "intro n\nrfl", "verified": True,
                       "name": name_b, "source_target": "g02", "source_corpus": "C1",
                       "added_round": 0}, ensure_ascii=False) + "\n",
@@ -459,7 +492,8 @@ def test_reuse_persistence(tmp_root: Path) -> None:
     runner.log = lambda *_a, **_k: None
     report = RoundReport(round_index=1, started_at="")
     cited = {name_a: {"g01", "t2", "t3"}, name_b: {"t1"}}
-    runner.update_library(report, cited, prompt_names={name_a})
+    exposed = {name_a: {"t2", "t3"}}
+    runner.update_library(report, cited, exposed, measure_target_ids={"t1", "t2", "t3"})
     rows = {row["name"]: row for row in load_library(library_path)}
     check("复用落盘：reuse 与 reuse_targets 写进库文件（淘汰/检索都靠它）",
           rows[name_a].get("reuse") == 2 and rows[name_a].get("reuse_targets") == ["t2", "t3"],
@@ -471,7 +505,7 @@ def test_reuse_persistence(tmp_root: Path) -> None:
     check("复用落盘：cost_tokens 一并写进库（检索层的排序键）",
           int(rows[name_a].get("cost_tokens") or 0) > 0, f"{rows[name_a]}")
     check("复用落盘：进过提示词的引理曝光计数 +1（没进的不加）",
-          rows[name_a].get("exposures") == 1 and rows[name_b].get("exposures") == 0,
+          rows[name_a].get("exposures") == 2 and rows[name_b].get("exposures") == 0,
           f"{rows[name_a]} / {rows[name_b]}")
     check("复用落盘：报告里的复用分布被填上",
           report.reuse.get("size") == 2 and report.reuse.get("buckets", {}).get("reusable") == 1,
@@ -757,6 +791,7 @@ def main() -> int:
     test_lean_file_parsing()
     test_selection_and_eviction()
     test_admission_and_bootstrap()
+    test_curriculum_split()
     test_reuse_measurement()
     test_reuse_persistence(scratch_dir("reuse_persist"))
     test_prover_module_api()
