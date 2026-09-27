@@ -1,12 +1,11 @@
-# 服务层接口契约（v2，双尺度连接重定稿）
+# 模型服务接口（v2）
 
 模型代理提供健康检查和三个业务端点：`/conjecture`、`/solve`、`/guide`。
 契约冻结后，生成侧、调用侧与 Lean 验证侧可以独立开发与测试。
 
-> v2 把引理库快照正式写入 `/solve` 契约，并区分产品提示词与中性测量提示词。
-> `/guide` 保留为 A 组对照；证明真伪仍只由 Lean 侧判定。
-> **迁移状态**：本文件描述目标契约；当前代码尚未完整实现 `snapshot_hash`、
-> `prompt_mode` 与 `sample_salt`，正式实验前必须补齐并加入契约测试。
+> v2 在 `/solve` 中区分产品提示词与中性测量提示词，并支持重复采样盐。
+> `/guide` 只用于研究对照；证明真伪始终由 Lean 判定。冻结库哈希由调用方记录并校验，
+> 不允许模型服务自行选择或修改引理库。
 
 基址默认 `http://127.0.0.1:8765`，Lean 侧通过 `reap.conjecture_endpoint` / `reap.guide_endpoint` 配置。
 
@@ -114,7 +113,8 @@ p_i     = softmax(review_i / T)          # T 默认 1.0，批内归一化
 prior_i = beta * ln(p_i)                 # beta 默认 10
 ```
 
-`beta` 与 `T` 暴露为 `reap.conjecture_weight` / `reap.conjecture_temperature`，其标定方法在阶段 3 用 `reap.raw_tree_path` 导出的 policy logprob 分布完成：先测出 policy prior 的典型尺度，再让 `beta * ln(p)` 落在同一量级。
+`beta` 与 `T` 暴露为 `reap.conjecture_weight` / `reap.conjecture_temperature`。如需启用 Guide，
+应先在开发集上测量 policy prior 的典型尺度，再让 `beta * ln(p)` 落在同一量级。
 
 ## `POST /solve`（v1.1 新增）
 
@@ -140,7 +140,7 @@ prior_i = beta * ln(p_i)                 # beta 默认 10
 |---|---|---|---|
 | `statement` | string | 是 | 要证的语句；**闭式**（只引用全局常量，或用 `∀`/`→` 自己引入变量） |
 | `num_samples` | int | 否 | 默认 4，范围 1–8 |
-| `library` | array | 否 | 已物化且在当前 Lean import 中可用的 active 引理；每项只含稳定名与命题 |
+| `library` | array | 否 | 已物化且在当前 Lean import 中可用的已发布引理；每项只含稳定名与命题 |
 | `snapshot_hash` | string | 有库时是 | 冻结库快照哈希；进入响应与实验报告，防止库版本漂移 |
 | `prompt_mode` | string | 否 | `measurement`（中性陈列）或 `product`（允许建议优先检查）；默认 `measurement` |
 | `sample_salt` | string | 重复采样时是 | 只用于区分独立采样，防止代理缓存把多轮变成同一输出重放 |
@@ -172,12 +172,12 @@ prior_i = beta * ln(p_i)                 # beta 默认 10
 | 环境变量 | 默认 | 说明 |
 |---|---|---|
 | `SOLVE_MAX_TOKENS` | 16384 | 单次调用输出预算（thinking 关闭时 16k 绰绰有余） |
-| `SOLVE_TEMPERATURE` | 0.6 | solve 要的是**多样性**（`solve_rate` = k 次采样成功几次），取值由闸门 G1 标定 |
+| `SOLVE_TEMPERATURE` | 0.6 | 控制候选多样性；正式值在开发集上确定 |
 
 ### 测量提示词与产品提示词
 
 `measurement` 模式只说明列出的引理在环境中可用，不得出现“优先引用”“引用更便宜”或
-“更不容易出错”等诱导措辞。它用于 probation 曝光、A/B/C 和有库/无库配对。
+“更不容易出错”等诱导措辞。它用于待观察引理的试用和有库/无库配对。
 
 `product` 模式允许建议模型先检查相关引理，用于最终产品体验，但其引用率不得回写 reuse，
 也不得替代严格方法指标。
@@ -185,8 +185,8 @@ prior_i = beta * ln(p_i)                 # beta 默认 10
 ### 库字段的前置条件
 
 调用方发送 `library` 前必须完成：快照哈希校验、`SgsLean.GeneratedLibrary` 编译、
-当前 Lean 会话 import 预检。服务端只负责把已经筛选好的相关 active 引理渲染进提示词，
-不负责检索，也不接受 probation/cold 条目。
+当前 Lean 会话 import 预检。服务端只负责把已经筛选好的相关已发布引理渲染进提示词，
+不负责检索，也不接受待观察或已停用条目。
 
 **判定码**：由 `SgsLean/Server.lean` 的 `verify` 返回，沿用 `SgsLean.classifyError` 的码表
 （`ok` / `not_a_prop` / `unclosed_goals` / `mvar_or_sorry` / `type_error` / `unknown_identifier` /

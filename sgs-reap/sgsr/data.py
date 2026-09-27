@@ -3,7 +3,7 @@
 合并自旧 `data/schema.py` + `data/lean_parse.py`：两者都是"把 Lean/轨迹文本
 规范化成下游能用的形状"，分成两个模块只会让调用方每次都要想"这个函数在哪"。
 
-下面是第一部分：轨迹与需求的数据模式（P2）。
+下面是第一部分：轨迹与需求的数据模式。
 
 轨迹 = 一条候选证明的逐步记录（`SgsLean/Trace.lean` 的 `trace` 命令输出）：
 
@@ -16,7 +16,7 @@
 这里只放**校验与归一化**，不放业务逻辑：任何脏数据都应该在进入挖掘前被挡住或标记，
 而不是让挖掘悄悄算出一个好看的数。
 
-## `id` 与 `target` 必须分开（P0 修复）
+## `id` 与 `target` 必须分开
 
 `id` 是**候选作业**的标识（`<目标>#<序号>`），`target` 才是**数学目标**的标识。
 早先的版本只有 `id`，而 `demand.mine` 直接把它当目标用——于是一条目标的 k 篇候选
@@ -66,7 +66,7 @@ def validate_trace(row: dict) -> list[str]:
     for key in ("id", "statement", "verified", "steps"):
         if key not in row:
             problems.append(f"缺字段 {key}")
-    # `target` 是 P0 修复加上的必填字段：缺了它，需求统计会退回"把候选当目标"的老错。
+    # `target` 是必填字段；缺少它会把候选证明误当成不同数学目标。
     target = str(row.get("target") or "").strip()
     if not target:
         problems.append("缺字段 target（候选作业的 id 不能当目标用）")

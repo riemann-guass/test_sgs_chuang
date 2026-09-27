@@ -35,7 +35,7 @@ CONJECTURE_TEMPERATURE = float(os.environ.get("CONJECTURE_TEMPERATURE", "1.0"))
 # review = [8,8,3,8,8]（stdev 2.0），T=0.0 时为 [8,8,8,8,8]（stdev 0.0）。
 GUIDE_TEMPERATURE = float(os.environ.get("GUIDE_TEMPERATURE", "0.0"))
 # Solve 要的是**多样性**（solve_rate 是"k 次采样里成功几次"），所以默认给一个正温度；
-# 具体取值由闸门 G1 标定。
+# 具体取值在开发集上标定。
 SOLVE_TEMPERATURE = float(os.environ.get("SOLVE_TEMPERATURE", "0.6"))
 LOG_PATH = os.environ.get("PROXY_LOG_PATH", "proxy_log.jsonl")
 
@@ -175,8 +175,8 @@ def handle_solve(req: dict) -> dict:
     由调用方把空列表当作"本次没生成出东西"，而不是错误。
 
     两条入口：
-    * `statement`：代理自己拼 `solve_prompt`（常规求解与两臂评测走这条）；
-    * `prompt`：**调用方直接给完整提示词**。P1 的 repair 步骤需要把内核的诊断
+    * `statement`：代理自己拼 `solve_prompt`（常规求解与配对评测走这条）；
+    * `prompt`：**调用方直接给完整提示词**。自动修补需要把内核诊断
       （失败码 + 错误原文）按 `repair_prompt` 的模板回灌，拼不出"只有 statement"
       的形式，所以必须能从外面送提示词进来。两条同时给出时 `prompt` 优先。
     """
@@ -193,7 +193,7 @@ def handle_solve(req: dict) -> dict:
 
     # 记忆注入（阶段 D/E）：库里的引理已在 Lean 环境中物化成有名常量，
     # 这里把它们的**名字 + 语句**告诉模型，让它可以直接引用。
-    # 空列表 = 提示词里不出现该区块 ⟹ "有库 / 无库"是干净的两臂对照（cover 的真定义靠它算）。
+    # 空列表表示提示词中没有库区块，使有库/无库条件只相差引理库。
     library = [
         {"name": str(item.get("name", "")), "stmt": str(item.get("stmt", ""))}
         for item in (req.get("library") or [])

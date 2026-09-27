@@ -1,43 +1,11 @@
-"""SG-Lean 的闭环编排（一轮 = 图 A 的完整流程）。
+"""离线引理库的唯一编排实现。
 
-这是整个项目**唯一**把各零件串成环的地方。在此之前，每一件都有实现与测试，
-但没有任何代码把它们按顺序连起来（审计结论）：门检/硬门/软分/物化/库各自独立，
-"环"只存在于文档里。本模块补上这一环：
+每轮依次完成：在建库集上求解并收集轨迹、汇总跨题需求、生成候选引理、执行硬性检查、
+证明候选、在独立测量集上试用、更新三种库状态，最后物化和冻结已发布引理。
 
-    ① 采轨迹（在 C 上跑 Solver + 验证 + 记录子目标签名）
-    ② 需求挖掘（N1：分层统计 + 跨目标一致性过滤）
-    ③ 猜想（条件化在 [未解目标 + 需求 + 库范例]）
-    ④ 判据层 G：门检 → 硬门（非平凡 ∧ 新颖）
-    ⑤ 求解（k 篇证明）→ ⑥ 验证（可证硬门）
-    ⑦ 软分（依赖抽取；压缩收益在能配对时才算）
-    ⑧ 选择（探索准入；复用证据只用于后续晋升与预算排序）
-    ⑨ 物化 + 入库 + 记忆注入（下一轮的提示词自动带上库）
-    ─────────────────────────────────────────────
-    ⑩ 一轮结束 → 回到 ①（此时提示词里已经有库了）
-
-## 数据角色（见 `docs/data-protocol.md`，这里用代码强制）
-
-* `C-build`：只做基线轨迹、需求挖掘和候选产生；
-* `C-measure`：只做试用库曝光和 constants 复用计数；
-  两者同时按目标身份与命题指纹强制不相交；
-* `dev`（D）：只用于调参与确认装置，**不进库、不进需求**；
-* `test`（T）：只在最终评测时读一次。本模块默认**拒绝**读它（`--allow-test` 才放行，
-  且放行时不给建库）。
-
-## 选择层现在怎么做（2026-09-22 重修）
-
-三件事分开，各用各的量（此前挤成一个"门槛"，结果库既长不大也长不住）：
-
-* **准入**：本轮验证通过的候选按**探索额度**入库（`coverage.exploration_admission`）。
-  新引理的 `reuse` 按构造是 0，**不能**拿它当准入门槛。
-* **复用测量**：`reuse(l)` = l 被多少个**不同目标**的**通过验收的**证明实际引用，
-  从**目标侧**的轨迹里数（那里才给了库）。测到的值连同 `reuse_targets` 落盘。
-* **淘汰**：`reuse=0` **且被给过机会（进过提示词）** 且超龄 → 冷存。没被给过机会
-  的引理不淘汰——否则淘汰的是没抽到签的人。
-* **提示词注入**：下一轮的提示词集合由 `coverage.select_by_reuse`（密度贪心 +
-  探索期补位）在 token 预算内选出，不再是"取前 N 条"。
-
-评测侧仍用 `proved_cover`（`scripts/run_gate_g3_real.py`）做两臂真 cover。
+数据边界由代码强制：C-build 只产生候选，C-measure 只提供正式复用证据，D/T 不进入本模块。
+新引理先按探索额度进入待观察状态，不能因为初始复用次数为零而被拒；只有获得足够展示机会
+后仍无引用证据的条目才会停用。最终效果由 `scripts/compare_library.py` 配对测量。
 """
 
 from __future__ import annotations
@@ -76,7 +44,7 @@ def _verify_ok(result: dict) -> bool:
     `dependencies` 命令回 `verified`（来自 `Measure.Dependency` 的字段）。
     闭环用 `dependencies` 跑验证以省一次 Mathlib 导入，因此这里必须容忍两种写法——
     phase25 的审计发现旧代码只检查 `result["ok"]`，于是**通过验证的候选也被判成不可证**，
-    库根本长不大（P0 第 3 条）。
+    否则通过的候选会被误判为失败，库无法增长。
 
     两种都缺失时返回 `None`（而不是 `False`）：那是协议错误，要与"判定为假"分开记。
     """
@@ -102,7 +70,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: 这些文件**永远**不许当建库来源，无论调用方怎么改名（`docs/data-protocol.md` 硬约束 1）。
 #: 用解析后的绝对路径比对，而不是文件名里找子串——旧守卫只看名字里有没有 `minif2f`，
-#: 把文件复制成别的名字就能绕过（审计 P0 第 5 条）。
+#: 同时检查内容指纹，避免仅靠改名绕过数据角色限制。
 FORBIDDEN_ROLE_PATHS = (
     REPO_ROOT / "data" / "minif2f_valid.jsonl",
     REPO_ROOT / "data" / "minif2f_dev.jsonl",
@@ -117,7 +85,7 @@ def _forbidden_hashes() -> dict[str, str]:
     （实测：`assert_buildable` 只比路径时，复制品照样过关）。内容指纹是最后一道——
     只要内容还是那份 D/T，无论叫什么名字、放在哪里都拒。
 
-    D/T 是冻结的只读数据，所以按内容判不会误伤"以后新写的课程集"。
+    D/T 是冻结的只读数据，所以按内容判断不会误伤以后新增的自定义建库数据。
     """
     import hashlib
 
@@ -158,7 +126,7 @@ class TargetSet:
         return TargetSet(role=role, path=p, rows=rows)
 
     def assert_buildable(self) -> None:
-        """只有 C 允许进库/挖需求。**这个方法必须被真的调用**（审计 P0 第 5 条）。"""
+        """只有建库集和复用测量集允许进入离线流程。"""
         if self.role not in {ROLE_CURRICULUM, ROLE_C_BUILD, ROLE_C_MEASURE}:
             raise DataRoleError(
                 f"{self.path.name} 的角色是 {self.role}；"
@@ -344,7 +312,7 @@ class RoundReport:
 
 
 class RoundRunner:
-    """跑一轮（或连续多轮）SG-Lean 闭环。"""
+    """运行一轮或连续多轮离线建库。"""
 
     def __init__(
         self,
@@ -385,11 +353,11 @@ class RoundRunner:
         """在目标集上跑 Solver → 记录每条候选证明的轨迹（含子目标签名）。
 
         返回 `(traces, attempts, backend_errors)`：traces 供需求挖掘**与复用测量**；
-        attempts 供诊断；backend_errors 是"装置挂了"的记录（**必须**与"模型没解出"
+        attempts 供诊断；backend_errors 是服务故障记录（必须与"模型没解出"
         分开，否则一次 503 会伪装成 0% 解出率）。
 
         `attempts` 里的 `id` 是**候选作业**标识、`target` 是**数学目标**标识——
-        两者必须分开（见 `sgsr/data/schema.py` 的 P0 说明），否则需求统计会把
+        两者必须分开，否则需求统计会把
         一条目标的 k 篇候选当成 k 个不同目标。
         """
         attempts: list[dict] = []
@@ -540,7 +508,7 @@ class RoundRunner:
         protocol_errors = 0
         for cand in candidates:
             # **协议错误 ≠ 判定为假**：服务端没回判定（响应缺失 / internal_error）时，
-            # 我们**不知道**这条候选该不该过门。把它记成"门检拒绝"会让装置故障伪装成
+            # 我们不知道这条候选该不该通过。把它记成"门检拒绝"会让服务故障伪装成
             # "候选质量差"——实测：Lean 的 maxErrors 上限让 156 个作业只回 51 条，
             # 2/3 的候选被静默当成"没过门检"丢掉了。
             entries = [responses.get(f"{tag}:{cand['key']}") for tag in ("c", "t", "n")]
@@ -581,7 +549,7 @@ class RoundRunner:
             if protocol_errors > 0.2 * len(candidates):
                 raise RuntimeError(
                     f"硬门批有 {protocol_errors}/{len(candidates)} 条候选拿不到判定"
-                    "（协议错误）——不要继续，先修装置（见 phase28 的 maxErrors 事件）"
+                    "（协议错误）——不要继续，先修复验证服务"
                 )
         return survivors
 
@@ -741,11 +709,10 @@ class RoundRunner:
     def commit(self, selected: list[dict], report: RoundReport | None = None) -> int:
         """把选中的候选写进 probation；发布 active snapshot 由调用方单独完成。
 
-        审计的 P0 第 4 条：旧代码只调 `materialize`，既不 `lake build
+        旧代码只调 `materialize`，既不 `lake build
         SgsLean.GeneratedLibrary`，也不检查返回。后果是下一轮提示词里给了
         `sgs_lem_i` 的名字，而环境里没有对应的 olean——模型引用时得到
-        `unknown identifier`，表现成"库没用"。phase22 已经用两臂测量踩过一次，
-        这里是同一条坑在闭环里的复现。
+        `unknown identifier`，表现成"库没用"。因此物化、编译和 import 预检必须连续完成。
         """
         if not selected:
             return 0
@@ -781,7 +748,7 @@ class RoundRunner:
 
         与 `commit` 分开是因为它有一个独立的用途：库没变、但物化文件丢了或过时
         （换机器、清过 `.lake`、手工改过库），需要单独重建一次——
-        `scripts/run_round.py --materialize-only` 走的就是这条。
+        `scripts/build_library.py --materialize-only` 走的就是这条。
 
         物化整库（`Materialize.emit` 是重写整个文件），并编译出 olean 供 `import` 使用。
         """
@@ -799,7 +766,7 @@ class RoundRunner:
             self._batches += 1
         materialized = (response.get("mat") or {}).get("result") or {}
         # `MaterializeResult` 的字段是 `written`/`skipped`/`names`，**没有 `ok`**
-        # （审计 P0 第 4 条的同类坑：按 `ok` 判会永远失败）。协议错误时才没有 written。
+        # 按 `ok` 判会永远失败；只有协议错误时才没有 written。
         if "written" not in materialized:
             detail = json.dumps(materialized, ensure_ascii=False)[:300]
             raise RuntimeError(f"物化失败：{detail}")
@@ -899,7 +866,7 @@ class RoundRunner:
             build_targets, [], server, report, sample_scope="build"
         )
         if build_errors:
-            # 装置故障要单列：把它混进"没解出"会让解出率凭空变低。
+            # 服务故障要单列：把它混进"没解出"会让解出率凭空变低。
             report.reasons["backend_error:build_solve"] = len(build_errors)
             report.funnel["backend_errors_build_solve"] = len(build_errors)
             self.log(f"[round {cfg.round_index}] C-build 求解端点报错 {len(build_errors)} 次"
@@ -920,7 +887,7 @@ class RoundRunner:
         # trace 作业内部已经跑过 `Verify.verify`，`TraceResult.verified` 就是结论——
         # 不要再单独起一批 verify（那会多付一次 Mathlib 导入）。
         # **`target` 才是数学目标**：`id` 是候选作业标识，把 id 当目标会让"已解出的目标"
-        # 与"未解目标"两个集合对不上，已解出的目标会被反复送去猜（审计 P0 第 2 条）。
+        # 与"未解目标"两个集合对不上时，已解出的目标会被反复送去生成候选。
         solved: set[str] = {
             str(t.get("target") or target_of(str(t.get("id"))))
             for t in build_traces if t.get("verified") is True
@@ -928,7 +895,7 @@ class RoundRunner:
         report.solved_targets = sorted(solved)
         if self._solved_prev is not None:
             # 跨轮 cover：本轮（有库）− 上一轮（无库/旧库）。
-            # 注意这是**顺序臂**，不是并行臂；最终评测仍用 run_gate_g3_real 的并行两臂。
+            # 注意这是建库轮内的顺序步骤；最终效果由 compare_library 的配对运行测量。
             report.cover_delta = len(solved) - len(self._solved_prev)
         self.log(f"[round {cfg.round_index}] C-build 解出目标 {len(solved)}/{len(build_targets)}"
                  + (f"；跨轮 cover 增量 {report.cover_delta}" if report.cover_delta is not None else ""))

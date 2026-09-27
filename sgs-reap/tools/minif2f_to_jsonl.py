@@ -1,4 +1,4 @@
-"""把 miniF2F（Lean4 移植版）转成我们的闭式语句数据（P4 准备）。
+"""把 miniF2F Lean 4 移植版转成统一的闭式命题 JSONL。
 
 源：`data/raw/miniF2F-lean4/MiniF2F/{Valid,Test}/<problem>.lean`，一题一文件，形如
 

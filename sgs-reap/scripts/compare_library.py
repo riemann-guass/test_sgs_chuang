@@ -1,48 +1,12 @@
-"""闸门 G3（真定义）：`proved_cover(S) − proved_cover(∅)`。
+"""LeanReuse 配对比较：同一批题在“无库”和“有库”条件下各运行一次。
 
-旧的 G3 是**空转**的：候选池被定义成"目标轨迹签名集合的并集"，于是每条候选按构造至少覆盖
-一个目标，贪心比 1.000、子模性 0 违例都是数学必然，跟"引理有没有用"无关
-（见 `docs/phase17-log.md` 之前的审计）。本脚本换成真定义：
+两个条件只允许引理库不同；模型、采样数、验证预算和题目必须相同。报告同时给出
+解题数变化和“通过验证的证明数 / 生成数”变化。默认使用开发集 D，也可以通过
+``--targets`` 指定其他非测试数据。这个入口不会修改引理库。
 
-    在**裸解不出的目标集**（`data/targets_hard.jsonl`）上，同一个 Solver、同样的 k：
+示例：先启动模型代理，再运行
 
-      基线臂：不给库            → proved_cover(∅) = 被证出的目标数
-      处理臂：给库（提示词列出引理名 + 环境里真的 import 了它们）
-                                → proved_cover(S) = 被证出的目标数
-
-      增益 = proved_cover(S) − proved_cover(∅)
-
-两个臂的差别**只有库**：同一批目标、同一个模型、同样的 k、同样的验证预算。
-处理臂的验证环境额外 `import SgsLean.GeneratedLibrary`，否则证明里引用 `sgs_lem_i` 会报
-`unknown identifier`。
-
-用法：
-
-    # 先起 MODELS\\proxy.py（需网络权限）
-    python scripts\run_gate_g3_real.py --limit 12 --k 2 --endpoint http://127.0.0.1:8770/solve
-
-工作负载（`--select`）：
-
-* `nearmiss`（默认）：修正后 G1 里 `0 < solve_rate < 1` 的目标——**偶尔能解出**，
-  这是 `cover` 唯一有信号的地方；
-* `easy`：`solve_rate = 1` 的目标，用来验证"给库不会让成绩变差"；
-* `mixed`：近失手 + 稳定可解；
-* `hard`：`solve_rate = 0` 的目标（**不要用它测增益**——phase21 实测两臂都是 0，
-  因为集合的定义就是"Solver 最不擅长的那些"，留不出余量）。
-
-度量：**评分制**（不是 0/1 翻转）：
-
-    cover(S) = Σ_w [ solve_rate_with(S, w) − solve_rate_without(S, w) ]
-    solve_rate = 验证通过的证明数 / k     （没生成出证明也算失败，所以分母固定是 k）
-
-近失手集合上 0/1 翻转太稀疏（k=2 时一条目标非 0 即 0.5），评分制才有分辨率。
-
-判定（跑之前定死）：
-
-* `pass`：评分制增益 > 0；
-* `no_gain`：增益 = 0——**有效结果**；
-* `negative`：增益 < 0（给库反而更差）——同样要如实报告，多半是采样噪声或提示词副作用；
-* `fail_pipeline`：验证层大面积协议错误（链路坏了）。
+    python scripts/compare_library.py --limit 12 --k 2
 """
 
 from __future__ import annotations
@@ -88,39 +52,17 @@ def load_library(path: Path) -> list[dict]:
     ]
 
 
-def load_workload(args, limit: int) -> list[dict]:
-    """按难度选工作负载（见文件头）。难度取自修正后的 G1 报告。"""
-    if args.select == "hard":
-        rows = [
-            json.loads(line)
-            for line in Path(args.targets).read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        return [{"id": row["id"], "statement": row["statement"]} for row in rows][:limit]
-
-    report = json.loads(Path(args.g1_report).read_text(encoding="utf-8"))
-    per_target = (report.get("corrected_g1") or {}).get("per_target") or {}
-    if not per_target:
-        print(f"[g3r] G1 报告里没有 per_target：{args.g1_report}")
-        return []
-
-    def bucket(rate: float) -> str:
-        if rate == 0:
-            return "hard"
-        if rate >= 1:
-            return "easy"
-        return "nearmiss"
-
-    wanted = {"nearmiss"} if args.select == "nearmiss" else (
-        {"easy"} if args.select == "easy" else {"nearmiss", "easy"}
-    )
-    # 近失手优先按"越接近能解出越好"排（solve_rate 高的先来），这样样本最有信息量
-    picked = [
-        (tid, entry) for tid, entry in per_target.items() if bucket(float(entry["solve_rate"])) in wanted
+def load_workload(path: Path, limit: int) -> list[dict]:
+    """读取统一 JSONL 题目文件；只保留比较所需字段。"""
+    rows = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
     ]
-    picked.sort(key=lambda item: (bucket(float(item[1]["solve_rate"])) != "nearmiss",
-                                  -float(item[1]["solve_rate"])))
-    return [{"id": tid, "statement": entry["stmt"]} for tid, entry in picked][:limit]
+    return [
+        {"id": str(row["id"]), "statement": str(row["statement"])}
+        for row in rows[:limit or None]
+    ]
 
 
 def run_arm(targets: list[dict], library: list[dict], args, import_spec: str, server=None
@@ -145,7 +87,7 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str, se
                 args.k,
                 prompt_library,
                 prompt_mode="measurement",
-                sample_salt=f"g3:{target['id']}",
+                sample_salt=f"compare:{target['id']}",
             )
         except BackendUnavailable as exc:
             backend_errors.append({"target": target["id"], "error": str(exc)})
@@ -165,7 +107,7 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str, se
     if jobs:
         if server is None:
             with LeanServer(imports=import_spec, heartbeats=budget_for_jobs(len(jobs)),
-                            stderr_path=RESULTS / "g3_real_stderr.log") as local_server:
+                            stderr_path=RESULTS / "compare_library_stderr.log") as local_server:
                 responses = local_server.batch(jobs)
                 frontend_ms = local_server.frontend_ms_total
         else:
@@ -218,13 +160,10 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str, se
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="闸门 G3（真定义）：有库/无库的净覆盖")
-    parser.add_argument("--targets", default=str(DATA / "targets_hard.jsonl"))
+    parser = argparse.ArgumentParser(description="逐题比较无库与有库的证明结果")
+    parser.add_argument("--targets", default=str(DATA / "minif2f_dev.jsonl"),
+                        help="JSONL 题目文件；默认使用开发集 D")
     parser.add_argument("--library", default=str(ROOT / "experiments" / "library.jsonl"))
-    parser.add_argument("--select", choices=["hard", "nearmiss", "easy", "mixed"], default="nearmiss",
-                        help="工作负载选择（见文件头）")
-    parser.add_argument("--g1-report", default=str(RESULTS / "reverify_all_n164.json"),
-                        help="用来判定目标难度（修正后的 G1 报告）")
     parser.add_argument("--endpoint", default=DEFAULT_SOLVE)
     parser.add_argument("--limit", type=int, default=12)
     parser.add_argument("--k", type=int, default=2)
@@ -235,30 +174,30 @@ def main() -> int:
 
     library = load_library(Path(args.library))
     if not library:
-        print("[g3r] 库为空——那两臂就没有差别，先跑 scripts\\run_round.py 把库建起来")
+        print("[compare] 库中没有可发布引理；请先运行 scripts\\build_library.py")
         return 2
-    targets = load_workload(args, args.limit)
+    targets = load_workload(Path(args.targets), args.limit)
     if not targets:
-        print("[g3r] 目标集为空")
+        print("[compare] 目标集为空")
         return 1
-    print(f"[g3r] 目标 {len(targets)} 条；库 {len(library)} 条；k={args.k}；端点 {args.endpoint}")
+    print(f"[compare] 目标 {len(targets)} 条；库 {len(library)} 条；k={args.k}；端点 {args.endpoint}")
 
     # 预检：处理臂的 import 必须真的能用。
     # phase22 踩过一次：`lake build SgsLean` 不会编 `SgsLean.GeneratedLibrary`（olea 不存在），
     # 于是处理臂的片段整批崩掉、所有判定为空——却表现为"给库后全部退化"的假结论。
     # 这里用一条最便宜的作业先验证环境，不通就直接退出，不让假数据流进报告。
     started = time.perf_counter()
-    print("[g3r] ==== 基线臂（不给库） ====")
+    print("[compare] ==== 无库条件 ====")
     baseline, baseline_errors = run_arm(targets, [], args, BASE_IMPORTS)
-    print("[g3r] ==== 处理臂（给库 + 环境 import 库） ====")
+    print("[compare] ==== 有库条件 ====")
     with LeanServer(imports=LIBRARY_IMPORTS, heartbeats=budget_for_jobs(),
-                    stderr_path=RESULTS / "g3_real_stderr.log") as treatment_server:
+                    stderr_path=RESULTS / "compare_library_stderr.log") as treatment_server:
         preflight_ok, preflight_detail = preflight_in_session(treatment_server)
         if not preflight_ok:
-            print(f"[g3r] 预检失败：处理臂环境 `import {LIBRARY_IMPORTS}` 不可用。")
+            print(f"[compare] 预检失败：有库环境 `import {LIBRARY_IMPORTS}` 不可用。")
             print(f"       详情：{preflight_detail}")
             return 1
-        print(f"[g3r] 预检通过（{LIBRARY_IMPORTS} 可用；复用同一会话）")
+        print(f"[compare] 预检通过（{LIBRARY_IMPORTS} 可用；复用同一会话）")
         treatment, treatment_errors = run_arm(
             targets, library, args, LIBRARY_IMPORTS, server=treatment_server
         )
@@ -274,10 +213,7 @@ def main() -> int:
     cover_lib = round(sum(r["solve_rate"] for r in treatment.values()), 4)
     graded_gain = round(cover_lib - cover_empty, 4)
 
-    # 把"工具坏了"与"两臂都没证出来"分开：
-    # phase21 实测 W = 37 条最难的（**因为难才被选进 targets_hard**）时两臂都是 0——
-    # 那是有信息量的结果（库帮不动这么难的题），不是脚本失败。只有当验证层大面积报协议错误时
-    # 才判 fail_pipeline。
+    # “两个条件都没解出”仍是有效结果；只有模型服务或验证协议失败才判流程故障。
     protocol_errors = sum(
         1
         for arm in (baseline, treatment)
@@ -287,7 +223,7 @@ def main() -> int:
         or verdict_row.get("reason") in ("missing_response", "missing_reason")
     )
     if backend_errors > 0 and not base_provable and not treat_provable:
-        # 端点挂了导致两臂都空 → 装置问题，不是"库没用"。
+        # 端点挂了导致两个条件都空，是服务故障，不是“库没用”。
         verdict = "fail_pipeline"
     elif protocol_errors > 0 and not base_provable and not treat_provable:
         verdict = "fail_pipeline"
@@ -321,14 +257,14 @@ def main() -> int:
         "treatment_proofs_total": sum(len(r["proofs"]) for r in treatment.values()),
         "gained_targets": gained,
         "lost_targets": lost,
-        "workload": args.select,
+        "target_file": str(Path(args.targets)),
         "verdict": verdict,
         "protocol_errors": protocol_errors,
         "backend_errors": backend_errors,
         "backend_error_examples": (baseline_errors + treatment_errors)[:3],
         "criterion": ("评分制增益 > 0 → pass；= 0 → no_gain；< 0 → negative；"
-                      "两臂皆 0 → no_solvable_targets；"
-                      "端点故障或验证层协议错误导致两臂皆空 → fail_pipeline"),
+                      "两个条件皆 0 → no_solvable_targets；"
+                      "端点故障或验证协议错误导致结果皆空 → fail_pipeline"),
         "timing": {"total_s": round(elapsed, 1)},
         "per_target": {
             tid: {
@@ -343,23 +279,23 @@ def main() -> int:
             for tid in baseline
         },
     }
-    out_path = Path(args.out) if args.out else RESULTS / f"g3_real_{args.select}_n{len(targets)}_k{args.k}.json"
+    out_path = Path(args.out) if args.out else RESULTS / f"library_comparison_n{len(targets)}_k{args.k}.json"
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    (RUNS / f"g3real_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}").mkdir(
+    (RUNS / f"compare_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}").mkdir(
         parents=True, exist_ok=True
     )
 
-    print(f"[g3r] 工作负载={args.select}  目标={len(targets)}  k={args.k}")
-    print(f"[g3r] 评分制 cover：基线 {cover_empty} → 给库 {cover_lib}（增益 {graded_gain}）")
+    print(f"[compare] 目标={len(targets)}  k={args.k}")
+    print(f"[compare] 通过率总和：无库 {cover_empty} → 有库 {cover_lib}（变化 {graded_gain}）")
     print(
-        f"[g3r] 处理臂引用库的证明：{report['treatment_proofs_citing_library']}"
+        f"[compare] 有库条件下实际引用引理的证明：{report['treatment_proofs_citing_library']}"
         f"/{report['treatment_proofs_total']} 篇"
     )
-    print(f"[g3r] 二值口径：proved_cover(∅)={len(base_provable)}  proved_cover(S)={len(treat_provable)}  差={gain}")
-    print(f"[g3r] 因库而多证出：{gained}")
+    print(f"[compare] 解题数：无库 {len(base_provable)}，有库 {len(treat_provable)}，变化 {gain}")
+    print(f"[compare] 仅有库条件解出：{gained}")
     if lost:
-        print(f"[g3r] 注意：有 {len(lost)} 条在给库后反而没证出（采样波动）：{lost}")
-    print(f"[g3r] 判定：{verdict}；报告 {out_path}")
+        print(f"[compare] 注意：有 {len(lost)} 条在给库后反而没证出（采样波动）：{lost}")
+    print(f"[compare] 判定：{verdict}；报告 {out_path}")
     return 0 if verdict in ("pass", "no_gain", "no_solvable_targets", "negative") else 1
 
 

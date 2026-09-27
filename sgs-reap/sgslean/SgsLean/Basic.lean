@@ -1,5 +1,5 @@
 /-
-SG-Lean 公共层（P1.1）。
+LeanReuse 验证层的公共定义。
 
 本文件只放三样东西：
 
@@ -29,16 +29,16 @@ namespace SgsLean
 
 /-- 门检与验证共用的**默认**心跳预算（单位与 Lean 的 `maxHeartbeats` 选项一致：千次心跳）。
 
-标定版用的是 200000（= 2 亿次心跳），只够应付 Nat/Prop 级的初等判定。P1.2 引入 Mathlib 后
+早期版本使用 200000（= 2 亿次心跳），只够应付 Nat/Prop 级的初等判定。引入 Mathlib 后
 必须放宽，原因很具体：我们的判定跑在 `lean` 驱动里，**Mathlib 的 tactic 代码是解释执行的**
 （不像 `lake build` 那样有原生代码），`ring` / `omega` 这类 tactic 的实际开销比编译版高
 一个量级。实测：ℝ 上的 `(x+y)^2 = x^2+2xy+y^2` 配 `ring`，在 2 亿次心跳下报
 `timeout at isDefEq`，放宽后才判为通过。
 
-真正的墙钟上限是 `reap.timeout`（默认 200 s/次 tactic），G1 标定时两者都要如实记录。
+真正的墙钟上限是 `reap.timeout`（默认 200 s/次 tactic），评测时两者都要如实记录。
 
 **运行时可覆盖**：环境变量 `SGSLEAN_HEARTBEATS`（见 `getHeartbeats`）。
-miniF2F 上的 G1 有 74% 的失败是 `exception`（含心跳耗尽），到底是"模型证不出"还是
+早期 miniF2F 运行中有 74% 的失败是 `exception`（含心跳耗尽），到底是"模型证不出"还是
 "预算掐死"必须能不改代码地分离——这是阶段 A 诊断的前提。 -/
 def defaultHeartbeats : Nat := 4000000
 
@@ -80,7 +80,7 @@ def normalizeStmt (s : String) : String :=
 与 `reap-fork/tests/Calibrate.lean` 的 `classifyError` 同构：后者位于测试驱动文件
 （不在 lake 的 glob 范围内，无法被库代码导入），因此这里复刻一份，两处的码表改动必须同步。
 
-相对标定版新增一条 `"unclosed_goals"`：SG-Lean 的验证判定里「证明没闭合」是高频且必须
+相对早期版本新增一条 `"unclosed_goals"`：LeanReuse 的验证判定里「证明没闭合」是高频且必须
 与「类型错误」区分的一类（`solve_rate` 统计直接依赖它）。 -/
 def classifyError (err : EvalError) : String :=
   match err with

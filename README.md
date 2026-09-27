@@ -1,116 +1,123 @@
-# SG-Lean：复用引导的双尺度 Lean 4 证明器
+# LeanReuse
 
-SG-Lean 输入一条 Lean 命题，输出一段经过 Lean 内核终检的 tactic 脚本。
-项目不训练或微调模型，而是把计算分成两个时间尺度：在线解决单题，离线建立可复用引理库。
+LeanReuse 是一个轻量的 Lean 4 自动证明项目。输入一条完整的 Lean 命题，系统生成候选
+证明，并且只返回通过 Lean 内核检查的证明。
 
-本项目受 [Scaling Self-Play with Self-Guidance（SGS）](https://arxiv.org/abs/2604.20209)
-启发，但不是 SGS 的训练复现。SGS 通过训练更新 Solver；SG-Lean 用经过验证和筛选的
-**冻结引理库快照**承载离线积累。
+项目的核心想法很简单：平时解决单题，空闲时整理一套经过验证、确实被其他题目使用过的
+引理库。在线求解只能读取已经冻结的引理库，不能临时修改它。
 
-## 核心架构
+## 它解决什么问题
 
-```text
-在线：命题 → 门检 → 从冻结活动库检索 → 生成候选证明 → Lean 内核终检 → 输出
-                         ↑
-                  LibrarySnapshot
-                         ↑
-离线：C-build → 需求与候选 → 硬门与证明 → probation
-      → C-measure 公平曝光 → reuse/cost → active → 物化、编译、冻结
-```
-
-两条路只通过 `LibrarySnapshot` 相连。在线求解不修改库；离线候选必须先进入试用池，
-获得跨目标复用证据后才能进入正式活动库。
-
-## 复用判据
+语言模型可以生成 Lean 证明，但生成结果可能有语法错误、未完成目标或者引用不存在的定理。
+LeanReuse 把语言模型当作候选生成器，把 Lean 内核当作最终裁判：
 
 ```text
-reuse(l) = l 被多少个不同的、非来源目标的、通过验收的证明实际引用
-cost(l)  = l 进入提示词的 token 成本
-score(l) = reuse(l) / cost(l)
+输入命题 → 找相关引理 → 生成候选证明 → Lean 验证 → 只返回通过项
 ```
 
-引用必须来自 Lean 证明项中的常量集合。失败证明里写过库名、同一目标重复引用、
-以及候选自己的来源目标，都不计入 `reuse`。
+离线阶段负责建立引理库：
 
-`reuse` 表示“被使用”，不等于“产生因果帮助”。正式实验还会用冻结的有库/无库配对
-测量真实 pass@k 增益，并审计引用代理与真实增益是否一致。
+```text
+从建库题中发现需求 → 生成并证明候选引理 → 在另一批题上试用
+→ 保留有跨题使用证据的引理 → 编译并冻结新版本
+```
 
-## 库生命周期
+项目不训练或微调模型，不需要 GPU。模型参数始终冻结，离线积累只通过引理库进入在线系统。
 
-| 状态 | 含义 | 是否进入正式在线证明器 |
+## 四份数据各做什么
+
+miniF2F 是当前唯一题目来源。valid 的 244 题按固定规则拆成三份，test 的 244 题保留为
+最终测试集。
+
+| 通俗名称 | 代码名称 | 数量 | 用途 |
+|---|---|---:|---|
+| 建库集 | `C-build` | 122 | 发现需求、生成和证明候选引理 |
+| 复用测量集 | `C-measure` | 61 | 检查候选引理是否真的被其他题使用 |
+| 开发集 | `D` | 61 | 调参数、排查故障、比较方案 |
+| 最终测试集 | `T` | 244 | 所有内容冻结后只运行一次 |
+
+建库集不能给自己生成的引理贡献正式复用记录；开发集和最终测试集绝不参与建库。
+
+## 引理如何进入正式库
+
+每条候选引理都要先通过语法、非平凡性、新颖性和可证明性检查，然后经历三个状态：
+
+| 中文含义 | 文件字段 | 说明 |
 |---|---|---|
-| `probation` | 已证明、等待跨目标试用 | 否 |
-| `active` | 公平曝光后达到复用门槛 | 是 |
-| `cold` | 曝光充分但无复用证据，或已淘汰 | 否 |
+| 待观察 | `probation` | 已经证明，但还没有足够的跨题使用证据 |
+| 已发布 | `active` | 可以进入在线证明器的冻结库 |
+| 已停用 | `cold` | 试用后没有证据，或后来被淘汰 |
 
-检索先按当前目标做相关性召回，再在相关候选中按 `reuse/cost` 排序。这样既避免
-无关的全局高频引理占满提示词，也避免新引理永远得不到试用机会。
-
-## 指标
-
-1. **正确率**：冻结测试集上的目标级 `pass@1` / `pass@k`。
-2. **成本**：`CostPerSolved`、`CostPerLemma`、`CostPerReusable`。
-3. **轻量化硬约束**：0 可训练参数、0 GPU、单实验 ≤12 小时、API ≤500 元。
-
-正式方法比较使用首轮、模型生成、无 repair、无廉价兜底的严格 pass@k。
-廉价 tactic 与 repair 是产品增强，单独报告，避免把库效果和其他能力混在一起。
-
-## 数据纪律
-
-| 数据 | 用途 | 禁止 |
-|---|---|---|
-| C-build（miniF2F valid 的 122 题） | 需求挖掘和候选生成 | 晋升测量 |
-| C-measure（miniF2F valid 的 61 题） | 复用曝光和晋升 | 候选来源 |
-| D（miniF2F valid 的 61 题） | 调参、debug、难度与预算选择 | 入库、需求挖掘、候选来源 |
-| T（miniF2F test） | 框架冻结后一次性最终评测 | 调参、建库、试跑 |
-
-## 实验设计
-
-- A：真实需求 + SGS Guide 选择；
-- B：真实需求 + `reuse/cost` 选择；
-- C：随机等量伪需求 + `reuse/cost` 选择。
-
-A/B 共用候选池，只比较选择判据；B/C 保持选择和预算不变，只比较需求信号。
-所有组使用同一模型、k、温度、token 上限、验证器和在线检索配置。
+“被使用”只认通过验证的 Lean 证明项，并按不同题目去重。失败证明中出现引理名字不算，
+候选引理自己的来源题也不算。正式效果最终还要通过同一批题的有库/无库配对测试确认。
 
 ## 当前状态
 
-已经具备 Gate、内核终检、证明项依赖抽取、库物化、常驻 Lean 服务、在线证明器、
-离线闭环、数据角色守卫和逐题报告。模型调用与 import 决策已统一，离线一轮的
-轨迹、硬门和验证共用一个 Lean 会话。三态库与活动快照哈希校验已经落地；旧库默认
-进入 probation，不会在线发布。C-build 与 C-measure 已在 Runner 中隔离，纯 Python
-唯一测试入口当前为 95 条断言。非平凡门现在使用 `rfl/decide/simp/aesop`
-四条 Lean 探针，可由 `rfl` 直接证明的定义等式不再入库。
+已经完成：
 
-2026-09-27 完成外部评审后的文字架构重定稿。代码尚未全部迁移到新规格，因此：
+- 在线单题求解、批量评测和离线建库主流程；
+- Lean 命题检查、证明验证、依赖提取、引理库生成和常驻验证服务；
+- 建库集、复用测量集、开发集和最终测试集的强制隔离；
+- 待观察、已发布、已停用三种库状态，以及冻结快照校验；
+- 95 条纯 Python 检查和 5 条 Lean 集成检查。
 
-- 当前 35 条库是开发期资产，全部 `reuse=0`，并含平凡条目，不用于正式结论；
-- 旧“两臂 14/24 引用”统计包含失败证明的文本命中，不是正式 reuse；
-- P1 报告仍是 9 题的部分报告；
-- 新 miniF2F C 分区的正式库重建并冻结前，不运行正式 P3 或 T。
-
-## 仓库结构
-
-```text
-docs/                         权威思路文档、汇报与相关工作
-AGENTS.md                     当前项目记忆、硬约束与迁移状态
-sgs-reap/
-  sgsr/                       Python 服务与两条流程
-  sgslean/                    Lean Gate / Verify / Trace / Materialize / Server
-  scripts/                    现有五个公共入口
-  data/                       C / D / T 数据
-  experiments/                库、运行记录与结果
-  docs/                       数据协议、接口契约、坑清单与历史日志
-```
+尚未完成：基于新 miniF2F 划分重建正式引理库，以及随后在开发集和最终测试集上的正式实验。
+仓库中的正式库当前应视为空，历史开发结果不代表项目最终性能。
 
 ## 快速自检
 
+需要 Windows PowerShell、Python 和项目 `lean-toolchain` 指定的 Lean 版本。
+
 ```powershell
-$py = "C:\Users\gaosen\anaconda3\python.exe"
-$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"
-cd D:\bianma\code\大创\sgs-reap
-& $py scripts\run_closure_tests.py --no-lean
+cd sgs-reap
+$env:PYTHONPATH = (Get-Location).Path
+python scripts\check_project.py --no-lean
 ```
 
-详细规格见 [SG-Lean 思路文档第二版](docs/SG-Lean思路文档第二版.pdf)，数据协议见
-[data-protocol.md](sgs-reap/docs/data-protocol.md)。
+运行包含 Lean 服务的轻量检查：
+
+```powershell
+$env:ELAN_HOME = "$env:USERPROFILE\.elan"
+python scripts\check_project.py --skip-materialize
+```
+
+这两个命令不会调用模型，也不会运行正式实验。
+
+## 五个公开入口
+
+| 命令 | 用途 |
+|---|---|
+| `scripts/prove.py` | 证明一条命题 |
+| `scripts/build_library.py` | 多轮建立并发布引理库 |
+| `scripts/evaluate.py` | 在指定数据集上批量评测 |
+| `scripts/compare_library.py` | 对同一批题比较有库与无库 |
+| `scripts/check_project.py` | 运行项目自检 |
+
+## 目录
+
+```text
+docs/                         面向读者的设计、状态与相关工作
+sgs-reap/
+  data/                       miniF2F 数据与可复现划分清单
+  scripts/                    五个公开命令行入口
+  sgsr/                       Python 实现
+  sgslean/                    Lean 验证器和生成库
+  experiments/                当前库、运行中间记录和结果
+  docs/                       接口、数据规则、工程注意事项和历史日志
+  reap-fork/                  保留的上游研究代码，不是日常入口
+```
+
+## 文档导航
+
+- [设计说明](docs/architecture.md)
+- [当前状态与后续工作](docs/project-status.md)
+- [数据划分规则](sgs-reap/docs/data-protocol.md)
+- [模型服务接口](sgs-reap/docs/api-contract.md)
+- [工程注意事项](sgs-reap/docs/pitfalls.md)
+- [阶段历史](sgs-reap/docs/history/README.md)
+
+## 名称说明
+
+项目公开名称是 **LeanReuse**。代码中的 `sgsr`、`SgsLean`、`sgs_lem_*` 和目录
+`sgs-reap` 是早期实现标识，为避免破坏已有 Lean 模块、数据和脚本导入路径而暂时保留，
+不代表项目仍在复现 SGS。SGS 只作为研究启发和后续对照方法出现。

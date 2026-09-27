@@ -39,7 +39,7 @@ checkpoints/
 models/
 # 上面那条 `models/` 是为**模型权重目录**写的，但它同时吞掉了 `sgsr/models/`（模型服务层：
 # proxy/mock_server/prompts/backend/config）。后果是这套代码**从未入库**，
-# phase24 重构把 `service/` 移到这里时连带丢了历史。这里加回例外。
+# 这里是服务代码而不是模型权重目录，因此显式加回。
 # 密钥仍由上面的 `.env` 规则挡住。
 !sgs-reap/sgsr/models/
 *.pdf
@@ -69,7 +69,7 @@ sgs-reap/data/*__*.jsonl
 # `experiments/runs/` 是逐条轨迹与中间产物，可再生产物，继续忽略；
 # 排除它与 `runs/` 规则冲突时以更具体的规则为准 —— git 的规则是"最后匹配者胜"。
 !sgs-reap/experiments/results/*.json
-# 原始语料（可复现：见 docs/phase16-log.md 的克隆命令），不入库
+# 原始上游仓库体积较大，可由数据转换工具重新准备，因此不入库
 sgs-reap/data/raw/
 
 # ---- 编辑器 / 系统 ----

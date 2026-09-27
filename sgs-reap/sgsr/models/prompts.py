@@ -216,7 +216,7 @@ def sub_scores_to_review(relevance: float, complexity: float, redundancy: float)
     return max(0.0, relevance + (2.0 - complexity) + (1.0 - redundancy))
 
 
-# ── /solve：整篇证明生成（P1.2 新增）────────────────────────────────────────
+# ── /solve：整篇证明生成 ─────────────────────────────────────────
 # 与 /conjecture 的分工：conjecture 出的是**命题**（`have`-ready），solve 出的是**证明脚本**。
 # 两者都只做文本生成与轻量规范化，"证明对不对"一律由 Lean 侧（SgsLean/Server.lean）判定。
 
@@ -236,7 +236,7 @@ def solve_prompt(
 
     `library`（阶段 D/E 的记忆注入）：已在 Lean 环境里**物化成有名常量**的引理列表，
     形如 `[{"name": "sgs_lem_1", "stmt": "..."}]`。空列表 = 不出现该区块，
-    于是"有库 / 无库"就是天然的两臂对照——`cover` 的真定义正是靠这两臂算的。
+    这样可以让同一批题的有库/无库条件保持可比较。
     """
     parts: list[str] = [
         "You are a Lean 4 theorem prover. Prove the following statement:\n\n"

@@ -7,7 +7,7 @@ Python 侧唯一入口，协议见 `docs/implementation-blueprint.md`。要点�
   **stdout 只放响应**，调用方可以放心逐行 `json.loads`。
 * **命令**：`ping` / `check` / `verify` / `cheap` / `flush`。写若干条请求后发 `{"cmd":"flush"}` 取回本批响应，
   或在 EOF 时自动 flush；每条请求恰好一条响应，顺序与请求一致。
-* **判定**：直接复用 P1.1 的 `Gate.check` / `Verify.verify`（`TacticM`），服务端与库内同源。
+* **判定**：直接复用 `Gate.check` / `Verify.verify`（`TacticM`），服务端与库内同源。
 
 ## 执行模型：一个常驻 `lean` 子进程、跨批复用（唯一路径）
 
@@ -34,7 +34,7 @@ Python 侧唯一入口，协议见 `docs/implementation-blueprint.md`。要点�
 工作目录里还有一份 `lean-toolchain`，保证 elan 在 `cwd` 下选出**与项目一致**的工具链
 （否则会落到 elan 默认工具链上，版本不匹配）。
 
-为什么不是进程内 `Lean.Elab.runFrontend`（P1.2 首版做法，已废弃）：
+为什么不使用已经废弃的进程内 `Lean.Elab.runFrontend`：
 
 * 导入 Mathlib 时进程内 frontend 直接崩：`cannot evaluate [init] declaration
   'Mathlib.pp.mathlib.binderPredicates' in the same module`；换成 `lean` 驱动（Mathlib 开发的
@@ -56,7 +56,7 @@ namespace SgsLean.Server
 
 v1.2：`ping` 回报实际生效的判定预算（心跳 / 秒杀心跳 / 单 tactic 墙钟），
 子进程的 `maxHeartbeats` 与 `reap.timeout` 由环境变量注入。
-起因：miniF2F 的 G1 里 74% 的失败是 `exception`，必须能不改代码地把预算放大来分离
+起因：早期 miniF2F 运行中 74% 的失败是 `exception`，必须能不改代码地放大预算，以分离
 "模型证不出"与"预算掐死"（见 `docs/phase18-log.md`）。 -/
 def protocolVersion : String := "v1.2"
 
@@ -127,7 +127,7 @@ def environmentInfo : TacticM Json := do
     ("version", toJson protocolVersion),
     ("importedModules", toJson env.header.moduleNames.size),
     ("mathlib", toJson (env.header.moduleNames.any (fun n => n == `Mathlib))),
-    -- 判定预算也回报：G1/诊断的结论必须能带上"用的是哪个预算"，否则数字不可比。
+    -- 判定预算也回报：诊断结论必须记录所用预算，否则数字不可比。
     ("heartbeats", toJson (← getHeartbeats)),
     ("trivialHeartbeats", toJson (← Trivial.getTrivialHeartbeats)),
     ("cheapBatches", toJson (Trivial.cheapBatches.map fun b => b.tactics.size)),

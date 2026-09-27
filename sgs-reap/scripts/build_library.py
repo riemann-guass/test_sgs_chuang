@@ -1,21 +1,19 @@
-"""跑 SG-Lean 的闭环（多轮）。命令行入口，编排逻辑全在 `sgsr/pipeline/runner.py`。
+"""LeanReuse 离线建库。命令行入口，编排逻辑全在 `sgsr/pipeline/runner.py`。
 
 用法：
 
-    # 离线冒烟（假服务）：验证闭环能转起来
-    python scripts\run_round.py --rounds 2 --target-limit 3 --k 1 --n 2 --expect-mock
+    # 离线冒烟（假服务）：验证建库流程能转起来
+    python scripts/build_library.py --rounds 2 --target-limit 3 --k 1 --n 2 --expect-mock
 
     # 真跑（先起 MODELS\\proxy.py，需网络权限）
-    python scripts\run_round.py --rounds 5 --k 3 --n 3
+    python scripts/build_library.py --rounds 5 --k 3 --n 3
 
 **数据角色（`docs/data-protocol.md`，这里用代码强制）**：
 
 * 默认显式读取 miniF2F valid 派生的 C-build/C-measure；
 * 自定义数据也必须分别通过 `--c-build` 和 `--c-measure` 提供；
-* `--dev`：调参用（miniF2F **valid**）。本脚本**不读它**——调参在
-  `scripts/run_gate_g3_real.py --select ...` 里做。
-* `--test`：最终评测（miniF2F **test**）。**本脚本拒绝接受 miniF2F 作为 curriculum**：
-  拿测试集建库再在测试集上测，结论是自我循环的（phase19–22 踩过这个坑）。
+* 开发集 D 不进入本脚本；需要检查库的效果时使用 `scripts/compare_library.py`。
+* 最终测试集 T 不得作为两个建库输入中的任何一个。
 """
 
 from __future__ import annotations
@@ -75,7 +73,7 @@ def make_factory(imports: str):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="SG-Lean 闭环（多轮）")
+    parser = argparse.ArgumentParser(description="LeanReuse 离线引理库构建")
     parser.add_argument("--c-build", default=str(DATA / "minif2f_c_build.jsonl"),
                         help="C-build JSONL")
     parser.add_argument("--c-measure", default=str(DATA / "minif2f_c_measure.jsonl"),
@@ -85,15 +83,15 @@ def main() -> int:
                         help="本轮用多少条 C-build 目标（0=全部）")
     parser.add_argument("--measure-target-limit", type=int, default=0,
                         help="本轮用多少条 C-measure 目标（0=全部）")
-    parser.add_argument("--k", type=int, default=3, help="每条候选让 Solver 出几篇证明")
-    parser.add_argument("--n", type=int, default=3, help="每个目标让 Conjecturer 出几条候选")
-    parser.add_argument("--library-budget", type=int, default=30, help="库容 B")
+    parser.add_argument("--k", type=int, default=3, help="每条候选命题生成几篇证明")
+    parser.add_argument("--n", type=int, default=3, help="每个未解目标生成几条候选引理")
+    parser.add_argument("--library-budget", type=int, default=30, help="引理库条目上限")
     parser.add_argument("--ctx-tokens", type=int, default=1200,
                         help="提示词预算（token）：选择层的约束口径")
     parser.add_argument("--reuse-threshold", type=int, default=2,
                         help="复用门槛：被至少这么多不同目标引用过才准入")
     parser.add_argument("--evict-after", type=int, default=3,
-                        help="僵尸淘汰：reuse=0 且入库超过这么多轮 → 冷存")
+                        help="无复用记录且超过这么多轮后移出在线库")
     parser.add_argument("--exploration-slots", type=int, default=8,
                         help="探索额度：一轮最多让多少条没有复用证据的新引理入库")
     parser.add_argument("--prompt-slots", type=int, default=16,

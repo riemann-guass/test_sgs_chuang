@@ -6,7 +6,7 @@
 
 为什么要有这个文件：同一段 20 行的 POST 逻辑此前在仓库里存在 7 份副本，
 而且**语义不一致**：有的把网络错误抛出去，有的吞成 `{"error": ...}` 返回。
-同一件事两套语义，正是审计最反对的那一类"装置坏了却伪装成结果"——调用方拿到的
+同一件事两套语义可以防止“服务坏了却被记录成数学失败”——调用方拿到的
 空列表到底是"模型没生成"还是"服务挂了"，取决于它恰好调的是哪一份副本。
 
 这里只保留两种**显式命名**的语义，调用方必须选一个，不能"忘了处理"：
@@ -39,7 +39,7 @@ DEFAULT_TIMEOUT = 300.0
 class BackendUnavailable(RuntimeError):
     """后端不可用（503 / 超时 / 网络 / 非 JSON 响应）。
 
-    **必须**与"模型证不出"分开记：前者是装置坏了，后者是这道题对模型太难。
+    **必须**与“模型证不出”分开记：前者是服务故障，后者是这道题对模型太难。
     """
 
 
@@ -51,7 +51,7 @@ def soft_post_json(url: str, payload: dict, timeout: float = DEFAULT_TIMEOUT) ->
     """POST 一个 JSON，错误收进 `{"error": {...}}` 返回（**不抛**）。
 
     返回体的形状与真代理的错误响应一致，调用方可以统一用 `response.get("error")`
-    判断这次调用是不是装置问题。
+    判断这次调用是不是服务问题。
     """
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(

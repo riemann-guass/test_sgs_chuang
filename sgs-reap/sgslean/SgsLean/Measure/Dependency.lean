@@ -56,7 +56,7 @@ def dependencies (stmt proof : String) (target : String := "") : TacticM Depende
       setGoals [obligation.mvarId!]
       let ctx ← mkProofCheckContext
       -- 必须与 `Verify` 一样先包成 `exact by ...`：多行脚本直接丢给
-      -- `evalTacticStrNoFinalCheck` 只会执行**第一行**（P1.1 踩过的坑，本模块的
+      -- `evalTacticStrNoFinalCheck` 只会执行第一行，因此
       -- 离线测试当场抓出来了：`intro a b` 之后 `exact Nat.add_comm a b` 根本没跑）。
       let action := MCTS.wrapProofScriptAsTactic (normalizeNewlines proof)
       match ← evalTacticStrNoFinalCheck ctx action (← getHeartbeats) with

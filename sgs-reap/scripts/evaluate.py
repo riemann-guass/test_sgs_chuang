@@ -1,6 +1,6 @@
-"""在一个数据集上批量评测证明器（P1，规格 9.1 与 8.2 节）。
+"""LeanReuse 批量评测：正确率、成本与失败分档。
 
-    python scripts/run_prover_eval.py --set D --k 4 --out experiments/results/p1_dev.json
+    python scripts/evaluate.py --set D --k 4 --out experiments/results/dev_evaluation.json
 
 必须同时报出四个量：
 
@@ -13,7 +13,7 @@
    混进成本会让 CostPerSolved 虚假地低）；
 4. **按领域的通过率分桶**（数据集有 `domain` 字段时才分，否则按来源/数据集名分）。
 
-**分母**：门检拒绝（输入问题）与后端故障（装置问题）都从分母里剔除，单列成
+**分母**：门检拒绝（输入问题）与后端故障（服务问题）都从分母里剔除，单列成
 `excluded_gate_rejected` / `excluded_backend_errors`。把它们算成"没解出"会让
 一次 503 直接压低 pass@k。
 
@@ -21,7 +21,8 @@
 
 | `--set` | 文件 | 允许用途 |
 |---|---|---|
-| `C` | 由 `--path` 给出（miniF2F valid 的 C 分区） | 建库 |
+| `C-build` | `data/minif2f_c_build.jsonl` | 仅供建库阶段检查 |
+| `C-measure` | `data/minif2f_c_measure.jsonl` | 仅供引理试用阶段检查 |
 | `D` | `data/minif2f_dev.jsonl` | 调参（可反复跑） |
 | `T` | `data/minif2f_test.jsonl` | **只跑一次**，框架冻结后 |
 
@@ -34,7 +35,7 @@
 * `tokens` = prompt + completion + reasoning 三类 token 之和（后端 `usage` 原样累加）；
 * 兜底命中**不**贡献 token，但要单独计一条 `cheap_hits`——它是"白拿"的解出；
 * 后端错误（503/超时）单独计 `backend_errors`，**不计入**失败率解释：
-  那是装置问题，不是模型能力问题。
+  那是服务问题，不是模型能力问题。
 """
 
 from __future__ import annotations
@@ -366,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"[eval] 可评测 {report['evaluable']}/{report['targets']}"
           f"（门检拒绝 {report['excluded_gate_rejected']}、"
-          f"装置故障 {report['excluded_backend_errors']} 已剔除）")
+          f"服务故障 {report['excluded_backend_errors']} 已剔除）")
     print(f"[eval] pass@{args.k} = {pct(report['pass_at_k'])}"
           f"（{report['solved']}/{report['evaluable']}）"
           f"；首轮 {pct(report['pass_at_k_first_round'])}"
@@ -388,7 +389,7 @@ def build_report(records: list[dict], *, label: str, args, budget, library_path,
     **抽成函数**是为了支持逐题落盘（见 `main` 的循环）：跑一道、写一次，
     末尾崩掉也不会把几小时的结果一起丢掉。`partial=true` 表示"后面还有题在跑"。
 
-    两个口径必须一起报（规格 8.2 + 审计"不要把装置故障算成模型能力"）：
+    两个口径必须一起报告，且不能把服务故障算成模型能力：
     输入问题（门检拒绝）与后端故障都**不是**这道题"没解出"，从分母里剔除并单列。
     """
     def first_round_ok(record: dict) -> bool:
@@ -404,7 +405,7 @@ def build_report(records: list[dict], *, label: str, args, budget, library_path,
     for r in excluded_gate:
         r["excluded"] = "gate_rejected"        # 输入/命题本身的问题，不进分母
     for r in backend_errors:
-        r.setdefault("excluded", "backend_error")   # 装置故障，不进分母
+        r.setdefault("excluded", "backend_error")   # 服务故障，不进分母
     evaluable = [r for r in records if not r.get("excluded")]
     solved = [r for r in records if r["solved"]]
     solved_evaluable = [r for r in evaluable if r["solved"]]
@@ -453,7 +454,7 @@ def build_report(records: list[dict], *, label: str, args, budget, library_path,
             "repair_rounds": 0 if args.no_repair else budget.repair_rounds,
         },
         "targets": len(records),
-        # 主指标：在**可评测**目标上（剔除输入问题与装置故障）。这是对外的 pass@k。
+        # 主指标：在可评测目标上计算，剔除输入问题与服务故障。
         "pass_at_k": (len(solved_evaluable) / len(evaluable)) if evaluable else None,
         # 同一条命令里的另外两个口径，必须一起报，否则"pass@k 含 repair 与兜底"
         # 这件事会被读者误当成 k 篇独立采样的通过率。

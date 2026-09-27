@@ -1,20 +1,17 @@
-"""证明器命令行入口（P1）。
-
-规格 9.1 节的验收命令：
+"""LeanReuse 单题证明入口。
 
     python scripts/prove.py --statement "forall (n : Nat), n + 0 = n" --k 4
     python scripts/prove.py --file tests/examples/t1.lean --k 4
 
-输出一个 RunRecord（字段见规格文档附录 A），其中 `proof` 一定通过了内核终检。
+输出一条运行记录，其中 `proof` 只会保存通过 Lean 内核终检的脚本。
 
 ## 两个开关值得单独说
 
 * `--imports`：验证环境导入什么。**有库时必须**用 `Mathlib,SgsLean.GeneratedLibrary`，
   否则证明里写 `sgs_lem_1` 会报 `unknown identifier`；库里没有引理时贴这个 import
   反而要额外编译一个模块。默认因此是"有库就带库、没库就用 Mathlib"。
-* `--no-cheap`：关掉第 3 步的廉价兜底。它是"零模型调用"那一档的消融开关，
-  P3 报成本时要把兜底命中率单独摘出来（兜底命中不花 token，
-  混进 CostPerSolved 会让成本看起来虚假地低）。
+* `--no-cheap`：关闭不调用模型的简单策略。正式方法比较默认关闭这类增强，避免它们
+  与语言模型或引理库的效果混在一起。
 """
 
 from __future__ import annotations
@@ -39,7 +36,7 @@ DEFAULT_ENDPOINT = "http://127.0.0.1:8770/solve"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="SG-Lean 证明器：一条命题进，一篇过内核的证明出")
+    p = argparse.ArgumentParser(description="LeanReuse：生成并验证一条 Lean 证明")
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--statement", help="闭式命题字符串")
     src.add_argument("--file", help="含 theorem/example ... := by sorry 的 .lean 文件")

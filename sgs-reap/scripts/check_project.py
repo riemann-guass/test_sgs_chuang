@@ -1,9 +1,6 @@
-"""闭环核心协议测试（P1/P2 之间的那道门）。
+"""LeanReuse 项目自检：一次运行验证所有关键契约。
 
-审计（2026-09-22）的原话："目前缺少能防止核心错位的自动测试……这也是为什么阶段日志
-可以显示'冒烟通过'，而关键协议字段错误仍长期存在。" 这个脚本就是补那一课。
-
-它测的都是**曾经真出过错**的点，每条都写清"错了会怎样"：
+这些检查覆盖曾经出现过的真实问题，每条都写清“错了会怎样”：
 
 | 测试 | 错了会怎样 |
 |---|---|
@@ -16,8 +13,8 @@
 
 用法：
 
-    python scripts\\run_closure_tests.py            # 全部（不需要 Lean，除了 B 组）
-    python scripts\\run_closure_tests.py --no-lean  # 只跑纯 Python 的 A 组
+    python scripts\\check_project.py            # 全部
+    python scripts\\check_project.py --no-lean  # 只跑纯 Python 检查
 
 判定：**任何一条失败就整体失败**（退出码 1）。反向对照的抓手是
 `--break <name>`：故意把某条断言的前提写坏，确认对应测试真的会红。
@@ -75,7 +72,7 @@ RESULTS: list[tuple[str, bool, str]] = []
 
 #: 临时目录放在**工作区内**：本项目的运行环境（沙箱）里系统 temp 不一定可写，
 #: 而且工作区内的临时目录会被 `.gitignore` 的 `experiments/runs/` 规则挡住，不入库。
-SCRATCH = ROOT / "experiments" / "runs" / "closure_scratch"
+SCRATCH = ROOT / "experiments" / "runs" / "project_check_scratch"
 
 
 def scratch_dir(name: str) -> Path:
@@ -96,11 +93,11 @@ def check(name: str, condition: bool, detail: str = "") -> None:
     print(line)
 
 
-# ─────────────────────── A 组：纯 Python ───────────────────────
+# ─────────────────────── 纯 Python 检查 ───────────────────────
 
 
 def test_target_identity() -> None:
-    """一条目标的 k 篇候选只能算 1 个目标（审计 P0 第 1 条）。"""
+    """一条目标的 k 篇候选只能算 1 个目标。"""
     traces = [
         {"id": candidate_id("g01", i), "target": "g01", "verified": True,
          "steps": [{"signature": "⊢ n + 0 = n", "goalsLeft": 0}]}
@@ -150,7 +147,7 @@ def test_missing_target_is_reported() -> None:
 
 
 def test_verify_field_names() -> None:
-    """`verify` 回 `ok`、`dependencies` 回 `verified`——两种都要认（审计 P0 第 3 条）。"""
+    """`verify` 回 `ok`、`dependencies` 回 `verified`，两种都要识别。"""
     check("协议字段：ok=true 判通过", _verify_ok({"ok": True}) is True)
     check("协议字段：ok=false 判失败", _verify_ok({"ok": False}) is False)
     check("协议字段：verified=true 判通过（dependencies 的字段名）",
@@ -161,7 +158,7 @@ def test_verify_field_names() -> None:
 
 
 def test_library_source_guard() -> None:
-    """库的来源字段是强制的，且 D/T 来源必须被拒（审计 P0 第 5 条）。"""
+    """库的来源字段是强制的，且 D/T 来源必须被拒。"""
     tmp = scratch_dir("library_guard")
     if True:
         path = tmp / "library.jsonl"
@@ -197,7 +194,7 @@ def test_library_source_guard() -> None:
 
 
 def test_role_guard() -> None:
-    """D/T 文件**改名也进不了**建库流程（审计 P0 第 5 条）。"""
+    """D/T 文件改名后仍然不能进入建库流程。"""
     tmp = scratch_dir("role_guard")
     registered = ROOT / "data" / "minif2f_dev.jsonl"
     if not registered.exists():
@@ -222,7 +219,7 @@ def test_role_guard() -> None:
         blocked_by_content = True
     check("角色守卫：D 的内容改名换目录也被拒（内容指纹）", blocked_by_content)
 
-    # ③ 反向对照：普通课程集不该被误伤
+    # ③ 反向对照：普通自定义建库数据不该被误伤
     innocent = tmp / "my_curriculum.jsonl"
     innocent.write_text('{"id":"g01","statement":"∀ (n : Nat), n + 0 = n"}\n',
                         encoding="utf-8")
@@ -231,7 +228,7 @@ def test_role_guard() -> None:
         TargetSet(ROLE_CURRICULUM, innocent, []).assert_buildable()
     except DataRoleError:
         passed = False
-    check("角色守卫：普通课程集不被误伤（反向对照）", passed)
+    check("角色守卫：普通自定义建库数据不被误伤（反向对照）", passed)
 
     # ④ 角色字段本身：非 curriculum 一律拒
     role_blocked = False
@@ -283,7 +280,7 @@ def test_minif2f_partitions() -> None:
 
 
 def test_lean_file_parsing() -> None:
-    """`.lean` 输入要能处理 import / namespace / 多定理（审计 P0 第 6 条）。"""
+    """`.lean` 输入要能处理 import、namespace 和多定理。"""
     text = """import Mathlib
 open Real
 
@@ -345,7 +342,7 @@ def test_selection_and_eviction() -> None:
     chosen2, _, diag2 = select_by_reuse(pool, ctx_budget=150, threshold=2)
     picked = {(c["name"], c["cost_tokens"]) for c in chosen2}
     # 断言必须写死：以前这里是 `... or len(chosen2) == 1`，那个"或"让这条永远为真
-    # （逃生口型断言），装置空转也照样亮绿灯。
+    # 不能只断言“总会有一个分支通过”，否则空转也会显示成功。
     # 这个池子在预算 150 下的正确结果是：贪心取 {S1,S2}（覆盖 3 个目标、成本 150），
     # 与"只取最优单条 S1"（覆盖同样 3 个、成本 100）**同值更贵**，
     # 按规格的平手规则（同增益取成本更低）应回退到 best_single。
@@ -697,11 +694,11 @@ def test_round_uses_one_main_session() -> None:
 def test_tier_classification() -> None:
     """难度分档（吸收自 `calibrate_difficulty.py` 的那部分）必须能被反向对照抓住。
 
-    分档错了会让 P3 的对照组在"本来就无余量"的题上跑，增益恒为 0 却看不出原因——
-    这正是 phase21 踩过的坑。这里用构造出来的逐题记录把四种类别钉死。
+    分档错误会让对照实验只选到“本来就无余量”的题，增益恒为 0 却看不出原因——
+    这里用构造出来的逐题记录锁定四种类别，防止选择没有改进空间的题目。
     """
     sys.path.insert(0, str(ROOT / "scripts"))
-    from run_prover_eval import classify_tier, write_tiers
+    from evaluate import classify_tier, write_tiers
 
     def record(path: str, passed_first_round: int, k: int) -> dict:
         attempts = [{"ok": True, "round": 0, "source": "solve"} for _ in range(passed_first_round)]
@@ -731,13 +728,13 @@ def test_tier_classification() -> None:
           and json.loads(lines[0])["tier"] == "nearmiss", f"{counts} / {lines}")
 
 
-# ─────────────────────── B 组：需要 Lean 的端到端 ───────────────────────
+# ─────────────────────── Lean 集成检查 ───────────────────────
 
 
 def test_lean_session_reuse() -> None:
     """**常驻会话**：一个 `LeanServer` 里连发多批，子进程不许每批重启。
 
-    这是 phase28 遗留的最大工程缺口（每批重付一次 Mathlib 导入，实测 67–493 s）。
+    这项检查防止每一批都重复支付 Mathlib 导入成本。
     U1 把 `Server.lean` 收敛成唯一一条常驻路径后，这条断言就是它的守门人：
     批号必须递增、第二批必须复用同一个进程。用 `imports=none` 跑，秒级。
     """
@@ -745,7 +742,7 @@ def test_lean_session_reuse() -> None:
 
     try:
         with LeanServer(imports="none",
-                        stderr_path=RESULTS_DIR / "closure_test_stderr.log") as server:
+                        stderr_path=RESULTS_DIR / "project_check_stderr.log") as server:
             first = server.batch([{"id": "s1", "cmd": "ping"}])
             second = server.batch([{"id": "s2", "cmd": "ping"}])
             third = server.batch([{"id": "s3", "cmd": "verify",
@@ -774,7 +771,7 @@ def test_lean_session_reuse() -> None:
 def test_materialize_round_trip() -> None:
     """物化 → `lake build SgsLean.GeneratedLibrary` → 真的能被 import。
 
-    审计 P0 第 4 条：旧闭环只调 `materialize` 不编译、不检查返回，
+    旧实现只调 `materialize` 不编译、不检查返回，
     下一轮的 `import` 必然失败（表现成"库没用"）。这里把整条路走通并断言编译成功。
     """
     from sgsr.lean import LeanServer
@@ -783,15 +780,15 @@ def test_materialize_round_trip() -> None:
     backup = generated.read_text(encoding="utf-8") if generated.exists() else None
     entries = [
         {"stmt": "∀ (n : Nat), n + 0 = n", "proof": "intro n\nrfl", "verified": True,
-         "source": "closure-test"},
+         "source": "project-check"},
     ]
     try:
-        with LeanServer(imports="Mathlib", stderr_path=RESULTS_DIR / "closure_test_stderr.log") as server:
+        with LeanServer(imports="Mathlib", stderr_path=RESULTS_DIR / "project_check_stderr.log") as server:
             response = server.batch([{"id": "mat", "cmd": "materialize",
                                       "path": str(generated), "entries": entries}])
         result = (response.get("mat") or {}).get("result") or {}
         # `MaterializeResult` 的字段是 `written` / `skipped` / `names`，**没有 `ok`**。
-        # 旧代码检查 `result["ok"]` 会永远判失败（与审计 P0 第 3 条同类的协议字段错位）。
+        # 旧代码检查 `result["ok"]` 会永远判失败，这是协议字段错位。
         check("物化：服务端回报写了 1 条（字段是 written 不是 ok）",
               int(result.get("written", -1)) == 1, f"{result}")
         proc = subprocess.run(
@@ -802,7 +799,7 @@ def test_materialize_round_trip() -> None:
         check("物化：`lake build SgsLean.GeneratedLibrary` 编译通过", proc.returncode == 0,
               output[-400:])
         with LeanServer(imports="Mathlib,SgsLean.GeneratedLibrary",
-                        stderr_path=RESULTS_DIR / "closure_test_stderr.log") as server:
+                        stderr_path=RESULTS_DIR / "project_check_stderr.log") as server:
             ping = server.ping()
         check("物化：环境能 import 生成库（ping 的 importedModules 增长）",
               int(ping.get("importedModules", 0)) > 0, f"{ping}")
@@ -820,13 +817,13 @@ RESULTS_DIR = ROOT / "experiments" / "results"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="闭环核心协议测试")
-    parser.add_argument("--no-lean", action="store_true", help="只跑纯 Python 的 A 组")
+    parser = argparse.ArgumentParser(description="LeanReuse 项目自检")
+    parser.add_argument("--no-lean", action="store_true", help="只跑纯 Python 检查")
     parser.add_argument("--skip-materialize", action="store_true",
-                        help="B 组只跑常驻会话（秒级），跳过要 Mathlib 的物化往返")
+                        help="只跑常驻 Lean 会话，跳过引理库物化往返")
     args = parser.parse_args()
 
-    print("=== A 组：纯 Python（协议、身份、守卫、解析、选择）===")
+    print("=== 纯 Python 检查：协议、身份、守卫、解析、选择 ===")
     test_target_identity()
     test_single_target_is_not_demand()
     test_missing_target_is_reported()
@@ -847,7 +844,7 @@ def main() -> int:
     test_tier_classification()
 
     if not args.no_lean:
-        print("=== B 组：需要 Lean（常驻会话 + 物化 → 编译 → import 往返）===")
+        print("=== Lean 集成检查：常驻会话与引理库往返 ===")
         test_lean_session_reuse()
         if not args.skip_materialize:
             test_materialize_round_trip()
@@ -855,18 +852,18 @@ def main() -> int:
     failed = [name for name, ok, _ in RESULTS if not ok]
     print()
     if failed:
-        print(f"[closure-tests] FAIL：{len(failed)}/{len(RESULTS)} 条不通过")
+        print(f"[project-check] FAIL：{len(failed)}/{len(RESULTS)} 条不通过")
         for name in failed:
             print(f"    - {name}")
-        results_path = RESULTS_DIR / "closure_tests.json"
+        results_path = RESULTS_DIR / "project_check.json"
         results_path.parent.mkdir(parents=True, exist_ok=True)
         results_path.write_text(json.dumps(
             {"passed": len(RESULTS) - len(failed), "failed": failed,
              "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in RESULTS]},
             ensure_ascii=False, indent=2), encoding="utf-8")
         return 1
-    print(f"[closure-tests] PASS（{len(RESULTS)} 条断言）")
-    results_path = RESULTS_DIR / "closure_tests.json"
+    print(f"[project-check] PASS（{len(RESULTS)} 条断言）")
+    results_path = RESULTS_DIR / "project_check.json"
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(json.dumps(
         {"passed": len(RESULTS), "failed": [],
