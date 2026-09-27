@@ -11,10 +11,10 @@
 | 脚本 | 作用 |
 |---|---|
 | `prove.py` | **单题入口**：一条命题进，一篇过内核终检的证明出 |
-| `run_prover_eval.py` | 批量评测：三个口径的 pass@k + 成本 + **难度分档**（`--tier-out`）；带环境预检与 T 的一次性守卫 |
-| `run_round.py` | 闭环主入口（多轮建库）。**只接受课程集 C**，有硬守卫；`--materialize-only` 只重建物化文件 |
-| `run_gate_g3_real.py` | **两臂测量**：有库／无库对照，含环境预检与引用计数。复用判据的测量基础 |
-| `run_closure_tests.py` | **唯一测试入口**（70 条断言）：目标身份、字段协议、库来源守卫、角色守卫、解析、准入/复用/淘汰、提示词区块、**常驻会话**、物化往返 |
+| `run_prover_eval.py` | 批量评测：严格 pass@k、产品增强口径、成本与难度分档；带环境预检与 T 一次性守卫 |
+| `run_round.py` | 离线建库入口。迁移目标是 C-build 生成、C-measure 试用、三态库与冻结快照 |
+| `run_gate_g3_real.py` | 有库／无库配对测量。当前引用统计仍是旧文本口径，修复前只作开发诊断 |
+| `run_closure_tests.py` | **唯一测试入口**（当前 72 条纯 Python 断言，另有常驻会话与物化往返） |
 
 ## 常用命令
 
@@ -40,7 +40,7 @@ $env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 直接跑脚本时 sgsr �
 & $py scripts\run_prover_eval.py --set D --k 4 --limit 20 --library none `
       --out experiments\results\p1_dev_k4_n20.json --tier-out data
 
-# 两臂测量（开发集上调参；测试集冻结后只跑一次）
+# 配对测量（当前仅作开发诊断；正式版本将统一到通过证明的 Lean constants）
 & $py scripts\run_gate_g3_real.py --select nearmiss --limit 6 --k 4 --endpoint http://127.0.0.1:8770/solve
 
 # 库没变但物化文件过时
@@ -71,12 +71,14 @@ $env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 直接跑脚本时 sgsr �
 
 * **判定准则写在脚本里、跑之前定死**（每个脚本的文件头都有），避免事后解释。
 * 报告一律带 `mode` 与规模后缀，防止小规模重跑覆盖正式报告。
+* 正式方法主指标是首轮模型生成、无 cheap、无 repair 的严格 pass@k；增强口径另报。
+* 在线、离线与配对实验最终必须共用一个生成/检索/验证执行引擎，不允许脚本各自解释引用。
 * Lean 侧测试在 `sgslean/SgsLean/Test/` 与 `reap-fork/Reap/Test/`，用 `lake build` 跑。
 * **语料准备在 `tools/prepare_domain_corpus.py`**：C1+C2 合成 `data/C.jsonl`、与 D/T 做
   命题级同源检查、写 `data/corpus_manifest.json`。分档清单是派生文件
   （`data/C__{easy,nearmiss,hard}.jsonl`），由 `run_prover_eval --tier-out` 重建，**不入库**。
 
-## 两个"只许有一份"的公共入口
+## 公共入口与迁移目标
 
 | 公共入口 | 唯一实现 | 谁在用 |
 |---|---|---|
@@ -84,3 +86,7 @@ $env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 直接跑脚本时 sgsr �
 | `sgsr/lean.py` | `sgslean-server` 的**常驻**客户端（跨批复用 + 环境预检 `preflight_imports`） | prove · run_prover_eval · run_round · closure_tests · run_gate_g3_real · tools/ |
 
 新增能力请直接复用这两处；不要再写第 N 份 `http_post` / `subprocess.run([lake, exe, ...])`。
+
+当前 `Prover`、`Runner.collect` 与 `run_gate_g3_real` 仍存在重复的求解/验证流程，且后者把
+失败证明的文本命中也算“引用”。下一阶段要把三者收敛到同一执行引擎；在此之前，
+`g3_c_device_n12_k2.json` 的 14/24 不得作为正式 reuse 证据。

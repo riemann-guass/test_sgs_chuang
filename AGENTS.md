@@ -1,139 +1,183 @@
 # AGENTS.md —— 项目记忆与约束
 
-> **实现规格**：`docs/SG-Lean思路文档第二版.pdf`（源码 `.tex`），第 3–5 节是步骤规格、
-> 第 9 节是阶段计划。**数据角色**：`sgs-reap/docs/data-protocol.md`。
-> **还生效的坑**：`sgs-reap/docs/pitfalls.md`。**接口字段**：`sgs-reap/docs/api-contract.md`。
-> 其余历史材料在 `sgs-reap/docs/history/`。冲突时以规格与本文件为准。
+> **权威实现规格**：`docs/SG-Lean思路文档第二版.pdf`（源码 `.tex`）。
+> **数据角色**：`sgs-reap/docs/data-protocol.md`。**仍生效的坑**：
+> `sgs-reap/docs/pitfalls.md`。**接口字段**：`sgs-reap/docs/api-contract.md`。
+> 历史材料只记录演变，不是当前规格。发生冲突时，以本文件与第二版思路文档为准。
 
-## 一、目标与评判指标
+## 一、项目定位
 
-**做一个证明器**：输入一条 Lean 命题，输出一段**通过内核终检**的 tactic 脚本。
-未通过验证的候选证明不出现在输出里。
+做一个 Lean 4 证明器：输入一条闭式 Lean 命题，输出一段通过 `Verify.verify`
+和 Lean 内核终检的 tactic 脚本。未通过验证的候选证明不得出现在输出中。
 
-1. **正确率**（主指标）：冻结测试集上的 pass@1 / pass@k，**目标级**统计。
-2. **成本**：`CostPerSolved` / `CostPerLemma` / **`CostPerReusable`**（建库总 token ÷ 被至少
-   两个不同目标引用过的引理数）。
-3. **轻量化**（硬约束，不是优化对象）：0 可训练参数、0 GPU、单次实验 ≤12 h、API ≤500 元、
+项目固定保留 SGS 启发的两个时间尺度：
+
+1. **在线单题求解**：对一个目标检索冻结库、生成证明、内核验证。
+2. **离线引理库建立**：在课程集 C 上产生、验证、试用和筛选引理，发布冻结库快照。
+
+这不是原 SGS 的训练复现。SGS 用训练更新 Solver；本项目不训练模型，而用
+**引理库快照**承载离线计算。两个尺度只允许通过冻结的 `LibrarySnapshot` 相连。
+
+## 二、评判指标
+
+1. **正确率（主指标）**：冻结测试集上的目标级 `pass@1` / `pass@k`。
+   正式方法比较以“首轮、模型生成、无 repair、无廉价兜底”的严格口径为主；
+   廉价 tactic 与 repair 是产品增强，必须另报，不能混进方法增益。
+2. **成本**：`CostPerSolved`、`CostPerLemma`、`CostPerReusable`。
+3. **轻量化（硬约束）**：0 可训练参数、0 GPU、单实验 ≤12 h、API ≤500 元、
    一条命令可复现。违反即不合格。
 
-**裁决**：正确率有显著差异取高者；置信区间重叠取 `CostPerSolved` 低者；成本接近取实现更简单者；
-违反轻量化硬约束者直接淘汰。
+裁决顺序：正确率显著差异优先；区间重叠时取 `CostPerSolved` 更低者；成本接近取
+实现更简单者。正式结果必须能从 `experiments/results/` 回溯。
 
-**不做**：不训练/不微调模型；不训练检索器；不用 miniF2F 作主基准；不重造库的演化与管理
-（沿用 DreamProver 的方法、只换选择判据）；不做自然语言到 Lean 的自动形式化。
+## 三、核心判据及其边界
 
-## 二、唯一的方法性改动
-
-```
-reuse(l) = l 被多少个【不同目标】的【通过验收的】证明实际引用
-cost(l)  = l 进入提示词的 token 数
+```text
+reuse(l) = l 被多少个不同的、非来源目标的、通过验收的证明实际引用
+cost(l)  = l 按实际提示词格式渲染后的 token 成本
 score(l) = reuse(l) / cost(l)
 ```
 
-准入 / 排序 / 淘汰三件事都用它，但**用法必须分开**：新引理按构造 `reuse=0`，所以
-**不能**拿"没复用证据"来拒它（走探索额度），也不能拿"超龄即杀"来淘汰（要求 `exposures>0`）。
-实现只有一处：`sgsr/pipeline/selection.py`。三个必须照做：按**不同目标**计数、只统计
-**通过验收**的证明、每次实验前做**环境预检**。
+`reuse` 是**使用证据**，不是因果价值。它只能由 Lean 证明项中的 `constants` 产生；
+证明文本中出现 `sgs_lem_*`、失败尝试引用库名、同一目标重复引用，均不得计数。
+真实帮助必须通过冻结的有库/无库配对实验审计。
 
-三个角色与两个尺度：在线只有求解者（`sgsr/pipeline/prover.py`），出题者与评审者只存在于
-离线闭环（`sgsr/pipeline/runner.py`）；两个尺度只通过**库**这一个接口相连。
+`score` 的职责只有两个：
 
-## 三、数据角色（不可混）
+- 候选完成规定曝光后，决定是否从试用池晋升活动库；
+- 在与当前目标相关的候选集合中排序和控制提示词预算。
 
-| 数据 | 角色 | 谁可以读 | 禁止 |
-|---|---|---|---|
-| **C** 课程集（`data/C.jsonl`） | 建库：需求 → 猜想 → 硬门 → 求解 → 入库 | 全流程 | — |
-| **D** 开发集（`data/minif2f_valid.jsonl`） | 调参、debug、看方向 | 测量与消融 | 进库；进需求挖掘；当候选来源 |
-| **T** 测试集（`data/minif2f_test.jsonl`） | 最终评测 | **框架冻结后只跑一次** | 任何调参/建库/需求/"看看效果" |
+不再声称真实随机语言模型的 pass@k 目标具有子模近似保证。
 
-库里**绝不允许**出现 `source_target` 落在 D 或 T 上的引理（判来源，不判文本相似度）。
-`run_round.py` 有硬守卫（文件名 + 内容指纹），`run_prover_eval.py` 有 T 的一次性台账。
+## 四、库的三种状态
 
-## 四、硬约束
+1. **probation（试用池）**：已通过硬门并有内核证明，但尚无跨目标复用证据。
+2. **active（活动库）**：在互不相同且不含来源目标的 C-measure 目标上获得规定曝光，
+   达到 `reuse_threshold`，允许进入正式在线快照。
+3. **cold（冷存）**：获得足够曝光后仍无复用证据，或被活动库淘汰；保留审计信息。
 
-1. **数据角色不可混**（见上表）。
-2. **绝不输出未验证的证明**：必须过 `Verify.verify` 的内核终检（`checkProof`）。
-3. **不提交密钥**：`sgsr/models/.env` 不入库。
-4. **`/guide`、GuideClient、rubric 保留**——它们是对照组 A（SGS 原样）。
-5. **不做梯度训练**；可训练参数恒为 0。
-6. **报告文件名带 mode 与规模后缀**，正式数字必须能由 `experiments/results/` 回溯。
-7. **库版本冻结**：评测时库不再更新；在线现场生成的临时引理不进全局库。
-8. **`reap-fork/.lake` 不删**。
-9. **一个概念只有一条实现路径**：在线求解、批量评测、建库、语料准备、选材各一条。
-10. **不新开入口**：新能力做成现有入口的子命令；派生数据（分档清单、manifest）不入库。
+新引理不能因为初始 `reuse=0` 被拒，但也不能直接进入正式活动库。探索发生在试用池，
+正式在线证明器只读取冻结的 active snapshot。
 
-## 五、当前状态（2026-09-27）
+检索顺序固定为：**相关性召回/过滤 → 在相关候选内按 reuse/cost 排序 → 预算截断**。
+不得让全局高 reuse 的无关引理压过当前目标的相关引理。
 
-**已具备**：门检 `Gate` / 内核终检 `Verify` / 非平凡 `Trivial`（含廉价兜底）/ 新颖 `Novelty` /
-轨迹 `Trace`（含 `constants`，复用测量的唯一来源）/ 物化 `Materialize`；在线九步证明器
-（`prover` + `selection` + repair）；离线十步闭环（`runner`）；两臂测量；难度分档；
-库 `experiments/library.jsonl` **35 条**（C2 来源，内容哈希命名）；唯一测试入口 **70 条断言**。
+## 五、两条流程
 
-**执行模型（2026-09-27 定稿）**：`lake exe sgslean-server` 起**一个**常驻 `lean` 子进程，
-跨批服务（`request.json` / `out.<n>.json` / `stop.flag`）。实测 Mathlib 首批 577 s、
-第二批 0.1 s。旧的 stdin/`jobs.json` 逐批 spawn 路径**已删除**。
+### 在线核心路径（正式方法比较）
 
-**未完成**：
-
-1. **P1 正式数字**：`experiments/results/p1_dev_k4_n20.json` 目前是 `partial: true` 的部分报告
-   （9/20 可评测、解出 2、token 66,157）。**要重跑**：`run_prover_eval --resume`（现在整批一个会话）。
-2. **P3 三组对照**：A（SGS 原样，LLM 打分）／B（复用判据＋需求）／C（随机伪需求）。
-   前置：C2 抽样要按"题面形态"重挑（现在 near-miss 只占 6%）；重复采样要带轮次盐
-   （代理缓存会让重复轮空转，见 `docs/pitfalls.md` 第八条）。
-3. **P4 成本与复用分析**（论文主图）、**P5 写作**。
-4. **`reuse` 忠实度未审计**：活动库里 35 条的 `reuse` **全是 0**（两臂装置检查里处理臂
-   14/24 篇确实引用了库引理）。"引用计数"与"真实边际增益"的相关性要等 P3/P4 的
-   `coverage.spearman` 与逐引理 with/without 消融。
-5. **三条表述待用户批准才能改**（属重大方向改变）：`自博弈`命名偏强；子模性保证不适用于
-   真实 pass@k；`reuse` 是"被使用次数"而非因果复用价值。
-
-## 六、常用命令
-
-```powershell
-$py = "C:\Users\gaosen\anaconda3\python.exe"        # Python 3.12.4；lake 由 elan 提供
-$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"     # 直接跑脚本时必须设
-
-# Lean 侧
-cd D:\bianma\code\大创\sgs-reap\sgslean
-lake build SgsLean SgsLean.Test sgslean-server
-lake build SgsLean.GeneratedLibrary     # 库目标不编这个模块，必须点名模块目标
-
-# 自检（唯一测试入口）
-cd D:\bianma\code\大创\sgs-reap
-& $py scripts\run_closure_tests.py --no-lean            # 纯 Python，秒级
-& $py scripts\run_closure_tests.py --skip-materialize   # 加常驻会话冒烟，约 20 s
-
-# 离线闭环冒烟（假服务，无 Mathlib）
-& $py sgsr\models\mock_server.py --port 8765
-& $py scripts\run_round.py --rounds 2 --target-limit 2 --k 1 --n 2 --imports none --expect-mock
-
-# 真模型（另开终端；密钥在 sgsr\models\.env）
-& $py sgsr\models\proxy.py --port 8770
-& $py scripts\prove.py --statement "∀ (a b : Nat), a + b = b + a" --k 4
-& $py scripts\run_prover_eval.py --set D --k 4 --limit 20 --library none --resume `
-      --out experiments\results\p1_dev_k4_n20.json
-
-# P2 语料与建库（真模型）
-& $py tools\prepare_domain_corpus.py --c2-limit 200 --sample 150 `
-      --out data\C.jsonl --manifest data\corpus_manifest.json
-& $py scripts\run_round.py --rounds 3 --curriculum data\C_build.jsonl --target-limit 30 `
-      --k 2 --n 2 --imports Mathlib,SgsLean.GeneratedLibrary --library-budget 80 `
-      --source-corpus C2 --solve-endpoint http://127.0.0.1:8770/solve `
-      --conjecture-endpoint http://127.0.0.1:8770/conjecture
-
-# 编译项目文档（需 xelatex，连编两遍）
-cd D:\bianma\code\大创\docs
-xelatex "SG-Lean思路文档第二版.tex"
+```text
+输入解析 → 命题门检 → 从冻结 active snapshot 检索 → 生成 k 篇证明
+→ Lean 批量终检 → 只输出通过项 → 记账
 ```
 
-`/health` 正常但 `/solve` 返回 503 → 代理起在没有网络权限的进程里。
+廉价 tactic 和 repair 可以作为产品外壳启用，但正式库效果实验默认关闭，并单独报告。
+外部 Mathlib 检索暂不属于核心方法；在有可靠端点和独立消融前不进入主流程图。
 
-## 七、协作约定
+### 离线建库路径
 
-* **一次只推进一个可验收单元**，六步走：状态检查 → 写码 → 跑 → **反向对照** → 记日志 → 提交。
-  "反向对照"指故意把断言写错、确认测试真的失败，防止装置空转。
-* 每个阶段写 `sgs-reap/docs/history/phase<N>-log.md`：为什么做 / 交付物 / 真实输出 / 坑 / 下一步。
-  验收必须能由命令复现。
-* 提交信息：`feat(phaseN): …` / `fix(phaseN): …` / `docs: …`；分支前缀 `codex/`。
-* 实测推翻假设时**同时改文档与代码**，不要让文档与实际相反。
-* **重大方向改变**（换主线、放弃主张、动数据协议、改指标优先级）**先问用户**。
+```text
+C-build 基线求解与轨迹 → 需求挖掘 → 为未解目标生成候选
+→ 合式/非平凡/新颖/可证硬门 → probation
+→ 在 C-measure 上公平、带盐曝光 → constants 计数
+→ reuse/cost 晋升 active → 物化、编译、发布冻结快照
+```
+
+同一候选的来源目标不得贡献其 reuse。测量提示词只中性陈列可用引理，不得用
+“优先引用更便宜”等措辞诱导引用。产品提示词与测量提示词必须分开。
+
+## 六、数据角色（不可混）
+
+| 数据 | 角色 | 禁止 |
+|---|---|---|
+| C | 建库；内部确定性划分为 C-build 与 C-measure | 与 D/T 同源 |
+| D (`minif2f_valid`) | 调参、debug、难度和预算选择 | 入库、需求挖掘、候选来源 |
+| T (`minif2f_test`) | 框架冻结后只运行一次 | 任何调参、建库或“看看效果” |
+
+库里不允许出现来自 D/T 的引理；判断来源，不判断文本相似度。评测时库完全冻结，
+在线临时产生的内容不得回写全局库。
+
+## 七、实验设计
+
+三组实验只改变一个因素：
+
+- **A：真实需求 + SGS Guide 选择**；
+- **B：真实需求 + reuse/cost 选择**；
+- **C：随机等量伪需求 + reuse/cost 选择**。
+
+A/B 使用同一候选池，隔离“选择判据”；B/C 使用相同选择和预算，隔离“需求信号”。
+三个组的模型、温度、k、token 上限、硬门、在线检索和验证完全相同。
+
+正式库评测必须同时报告：严格 pass@k、配对差值与置信区间、失败类型、token 成本、
+活动库规模、复用分布，以及“引用代理与真实 with/without 增益”的忠实度审计。
+
+## 八、硬约束
+
+1. 数据角色不可混。
+2. 未经内核终检的证明绝不输出、绝不入库。
+3. `sgsr/models/.env` 不入库。
+4. `/guide`、Guide rubric 保留，作为 A 组对照。
+5. 不做梯度训练；可训练参数恒为 0。
+6. 正式报告名带 mode、规模和库快照哈希。
+7. 正式评测期间库冻结。
+8. `reap-fork/.lake` 不删。
+9. 一个概念只有一个执行实现：在线、离线和两臂实验共用同一求解/检索/验证引擎。
+10. 不新开顶层脚本入口；新能力做成现有入口的子命令。
+11. 重大方向变化、数据协议变化、指标优先级变化仍须先征得用户同意。
+
+## 九、当前状态（2026-09-27，文字架构已重定稿）
+
+### 已验证的工程基础
+
+- Lean：`Gate`、`Verify`、`Trace.constants`、`Materialize`、常驻服务。
+- Python：在线 `Prover`、离线 `Runner`、模型代理、数据角色守卫、逐题落盘。
+- 数据：C=195（C1 63 + C2 132），与 D/T 命题级重叠为 0。
+- 测试：唯一入口当前为 **72 条纯 Python 断言**，另有 Lean 冒烟与物化往返。
+
+### 不得再当作正式结论的旧资产
+
+- `experiments/library.jsonl` 的 35 条是开发期库：全部 `reuse=0`，且含可由 `rfl`
+  直接证明的平凡条目。它只能用于迁移和装置诊断，正式实验必须重建。
+- `g3_c_device_n12_k2.json` 的“14/24 引用”按证明文本是否包含 `sgs_lem` 统计，
+  包含失败尝试，不符合 reuse 定义；不得作为非零复用证据。
+- `p1_dev_k4_n20.json` 仍是 `partial: true` 的 9 题开发报告，不是正式数字。
+
+### 实现与新规格的差距
+
+1. probation/active/cold 三态尚未实现；当前验证候选会直接进入活动库。
+2. 离线 Runner、在线 Prover、两臂脚本仍有重复执行路径。
+3. 两臂引用统计尚未统一为通过证明的 Lean constants。
+4. 非平凡门未能挡住现有库中的 `rfl` 平凡命题。
+5. 检索仍以 reuse 密度优先于相关性。
+6. 测量提示词与产品提示词尚未分离。
+7. 现有 C2 抽样 near-miss 仅 5/80，需要按题面形态重选。
+
+在上述迁移完成前，不运行正式 P3，也不运行 T。
+
+## 十、下一阶段顺序
+
+1. 统一求解、检索、验证执行引擎，并修正两臂引用口径。
+2. 实现库三态与冻结快照契约；补反向对照。
+3. 修复硬门并重建 C 课程集与正式库。
+4. 跑 D 上的装置检查和候选判据忠实度审计。
+5. 冻结后运行 A/B/C；最后只运行一次 T。
+6. 做成本分析与写作。
+
+## 十一、协作与验收
+
+一次只推进一个可验收单元：状态检查 → 实现 → 正向测试 → **反向对照** →
+阶段日志 → 提交。反向对照必须故意构造应失败的情况，确认测试不是空转。
+
+每阶段记录在 `sgs-reap/docs/history/phase<N>-log.md`，包括为什么做、交付物、真实输出、
+踩坑与下一步。提交信息用 `feat(phaseN): ...`、`fix(phaseN): ...` 或 `docs: ...`；
+新分支默认前缀 `codex/`。
+
+常用自检：
+
+```powershell
+$py = "C:\Users\gaosen\anaconda3\python.exe"
+$env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"
+cd D:\bianma\code\大创\sgs-reap
+& $py scripts\run_closure_tests.py --no-lean
+& $py scripts\run_closure_tests.py --skip-materialize
+```

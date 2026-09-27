@@ -1,5 +1,5 @@
 % !TEX program = xelatex
-% SG-Lean 思路文档（第二版）—— 实现规格
+% SG-Lean 思路文档（第二版）—— 2026-09-27 外部评审后重定稿
 \documentclass[UTF8,a4paper,11pt,fontset=windows]{ctexart}
 
 \usepackage{geometry}
@@ -11,7 +11,6 @@
 \usepackage{enumitem}
 \usepackage{xcolor}
 \usepackage{url}
-\usepackage{adjustbox}
 \usepackage[hidelinks]{hyperref}
 \usepackage{fancyhdr}
 \usepackage{tcolorbox}
@@ -24,8 +23,6 @@
 \definecolor{sggray}{RGB}{90,96,106}
 \definecolor{sgred}{RGB}{150,50,50}
 
-\xeCJKDeclareCharClass{CJK}{"2460 -> "24FF}
-
 \ctexset{
   section/format = \Large\bfseries\color{sgblue},
   subsection/format = \large\bfseries\color{sgblue!85!black},
@@ -34,13 +31,14 @@
 
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\color{sggray}SG-Lean 思路文档（第二版）}
+\fancyhead[L]{\small\color{sggray}SG-Lean 实现规格}
 \fancyhead[R]{\small\color{sggray}\leftmark}
 \fancyfoot[C]{\small\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \newcommand{\lp}[1]{\path{#1}}
+\newcommand{\code}[1]{\texttt{\small #1}}
 
 \newtcolorbox{keybox}[1][]{
   colback=blue!4, colframe=sgblue!70, boxrule=0.6pt, arc=2pt,
@@ -52,1355 +50,488 @@
   colback=green!3, colframe=sggreen!55, boxrule=0.6pt, arc=2pt,
   left=6pt, right=6pt, top=5pt, bottom=5pt, breakable, #1}
 
-\newcommand{\code}[1]{\texttt{\small #1}}
-
 \tikzset{
-  onl/.style = {draw, rounded corners=2pt, align=center, inner sep=3pt,
-                 fill=blue!6, font=\footnotesize, minimum height=6mm},
-  offl/.style = {draw, rounded corners=2pt, align=center, inner sep=3pt,
-                 fill=green!7, font=\footnotesize, minimum height=6mm},
-  fl/.style = {-{Latex[length=1.8mm]}, thick, draw=sggray},
+  onl/.style={draw,rounded corners=2pt,align=center,inner sep=4pt,
+              fill=blue!6,font=\footnotesize,minimum height=7mm},
+  offl/.style={draw,rounded corners=2pt,align=center,inner sep=4pt,
+               fill=green!7,font=\footnotesize,minimum height=7mm},
+  store/.style={draw,rounded corners=2pt,align=center,inner sep=5pt,
+                fill=orange!12,font=\footnotesize},
+  arr/.style={-{Latex[length=1.8mm]},thick,draw=sggray},
 }
 
 \title{\bfseries SG-Lean 思路文档（第二版）\\[2mm]
-       \large 复用导向的轻量自博弈证明器\\[1mm]
-       \normalsize 实现规格}
+       \large 复用引导的双尺度 Lean 4 证明器\\[1mm]
+       \normalsize 外部评审后实现规格}
 \author{}
-\date{}
+\date{2026 年 9 月 27 日}
 
 \begin{document}
 \maketitle
 \thispagestyle{fancy}
 
 \begin{keybox}
-\textbf{本文件的定位}：这是\textbf{实现规格}，不是理念介绍。
-任何人拿着它就应该能直接开工，不需要再问"这一步的代码写成什么样"。
+\textbf{文件地位}：本文件是当前实现规格。历史阶段日志只记录过去发生了什么，
+不能覆盖本规格。字段协议见 \lp{sgs-reap/docs/api-contract.md}，数据纪律见
+\lp{sgs-reap/docs/data-protocol.md}，工程坑见 \lp{sgs-reap/docs/pitfalls.md}。
 
-\textbf{与第一版的关系}：第一版《SG-Lean 思路汇报》保留作为理念记录；
-本版是它的修订与细化，凡两者冲突以\textbf{本版}为准。
-文献基线与"哪些已被别人做过"见《库的相关工作》。
-
-\textbf{阅读顺序}：第 1 节（目标与指标）与第 2 节（总览）必须读；
-写代码时按第 3 至 5 节的步骤规格与第 9 节的阶段计划执行；
-接口字段见附录 A，函数签名见附录 B。
+\textbf{本次重定稿的核心}：保留“在线单题求解 + 离线建库”两个时间尺度，
+但把二者的连接收紧为一个冻结的活动库快照；区分“引理被使用”与“引理真正带来增益”；
+删除不成立的子模保证；将现有 35 条库降级为开发期资产。
 \end{keybox}
 
-\vspace{2mm}
 \tableofcontents
-\vspace{4mm}
 
 %======================================================================
-\section{目标与评判指标}
+\section{目标、边界与评判指标}
 
 \subsection{产品目标}
 
-构建一个 Lean 4 形式化数学证明器：输入一条数学命题的 Lean 形式化陈述，
-输出一段通过 Lean 内核检验的 tactic 证明脚本。
+输入一条闭式 Lean 4 命题，输出一段通过 Lean 内核终检的 tactic 脚本。
 
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{2.0cm}Y@{}}
-\toprule
-\textbf{输入} & 两种形式之一：（i）一个 \code{.lean} 文件，其中含 \code{theorem} 或
-\code{example} 语句且证明体为 \code{sorry}；（ii）一条闭式命题字符串
-（只引用全局常量，变量用全称量词引入）。\\
-\midrule
-\textbf{输出} & 一个 JSON 对象（或写回 \code{.lean} 文件）：通过的证明脚本、
-命中的求解路径、验证记录、耗时与 token 成本。\\
-\midrule
-\textbf{保证} & 输出中的每一篇证明都经过 Lean 内核终检（含无 \code{sorry}、
-无残余元变量的检查）。未通过验证的候选\textbf{不出现在输出中}。\\
-\bottomrule
-\end{tabularx}
-\end{table}
+候选必须依次通过 \code{Verify.verify} 和最终 \code{checkProof}；否则不得进入输出字段。
 
-\subsection{三个评判指标}
+项目不做自然语言自动形式化，不训练或微调模型，不训练检索器，也不重造一个通用的
+Mathlib 前提选择系统。研究问题是：\textbf{在零训练条件下，离线构建的可复用引理库，
+能否以可控成本提高未参与建库目标的证明成功率？}
 
-本项目只用三个指标衡量，并且\textbf{优先级固定如下}。
-任何取舍、任何技术选择、任何"要不要做某件事"的判断，都按这个顺序裁决。
+\subsection{与 SGS 的关系}
 
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{0.9cm}p{2.3cm}p{3.6cm}Y@{}}
-\toprule
-\textbf{优先级} & \textbf{指标} & \textbf{定义} & \textbf{计算公式} \\
-\midrule
-\textbf{1} & \textbf{正确率} & 在冻结的测试集上，目标级通过率。
-一道题只要有至少一篇候选通过内核检验即算解出。 &
-$\mathrm{pass@}k = \dfrac{1}{|T|}\sum_{w\in T}\mathbf{1}\left[\max_{i\le k} \mathrm{verify}(w,y_i)=1\right]$ \\
-\midrule
-\textbf{2} & \textbf{成本} & 为达到上述正确率所付出的模型调用成本。&
-见下方三个成本量 \\
-\midrule
-\textbf{3} & \textbf{轻量化} & \textbf{不是优化对象，是可交付性的硬约束}：
-违反即判定为不合格，无论正确率多高。& 见下方约束清单 \\
-\bottomrule
-\end{tabularx}
-\end{table}
+本项目受 SGS（\emph{Scaling Self-Play with Self-Guidance}）的 Solver、Conjecturer、Guide
+角色分工启发，但不是 SGS 的训练复现。原 SGS 让合成题通过训练更新 Solver；本项目的
+Solver 参数始终冻结，离线积累只通过引理库传递给在线求解器。
 
-\textbf{成本的三个量（必须同时报）：}
+因此不能直接继承 SGS 的因果叙事。必须单独验证以下链条：
 
 \[
-\mathrm{CostPerSolved} = \frac{\text{总 token 数}}{\text{解出题数}},
-\qquad
-\mathrm{CostPerLemma} = \frac{\text{建库总 token 数}}{\text{入库引理数}},
-\]
-\[
-\mathrm{CostPerReusable} = \frac{\text{建库总 token 数}}{\#\{\ell \in L:\ \mathrm{reuse}(\ell) \ge 2\}}
+\text{离线候选}
+\rightarrow \text{通过硬门和内核}
+\rightarrow \text{跨目标真实使用}
+\rightarrow \text{活动库}
+\rightarrow \text{在线 pass@}k\text{ 增益}.
 \]
 
-其中 $\mathrm{reuse}(\ell)$ 是引理 $\ell$ 被多少个\textbf{不同目标}的通过验收的证明实际引用过，
-精确定义见 5.5 节。$\mathrm{CostPerReusable}$ 是本项目最看重的成本量：
-它把"复用"和"花钱"放在同一个分母里。
-
-\textbf{轻量化的硬约束清单（全部必须满足）：}
+\subsection{指标与裁决}
 
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabularx}{\textwidth}{@{}p{3.4cm}p{3.2cm}Y@{}}
+\begin{tabularx}{\textwidth}{@{}p{2.2cm}p{4.0cm}Y@{}}
 \toprule
-\textbf{约束} & \textbf{上限} & \textbf{说明} \\
+\textbf{优先级} & \textbf{指标} & \textbf{口径} \\
 \midrule
-可训练参数 & \textbf{0} & 不做任何梯度更新，不训练、不微调、不训练检索器 \\
-\midrule
-GPU 需求 & \textbf{0} & 全部实验在单机 CPU + API 上完成 \\
-\midrule
-单次实验墙钟 & $\le$ 12 小时 & 一次完整的建库加评测；可分批跨日执行 \\
-\midrule
-单次实验 API 预算 & $\le$ 500 元 & 全部实验合计 $\le$ 3000 元 \\
-\midrule
-复现门槛 & 一条命令 & 提供一键复现脚本，入口不带交互 \\
+1 & 严格 pass@1 / pass@$k$ & 目标级；首轮模型生成；无 repair、无廉价 tactic \\
+2 & 成本 & CostPerSolved、CostPerLemma、CostPerReusable \\
+3 & 轻量化 & 0 可训练参数、0 GPU、单实验不超过 12 h、API 不超过 500 元 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\begin{keybox}
-\textbf{优先级如何裁决冲突（写死，避免临时争论）}：
-\begin{enumerate}[leftmargin=1.5em,itemsep=2pt,topsep=2pt]
-  \item 若两个方案\textbf{正确率有显著差异}，选正确率高的，成本不计较。
-  \item 若正确率\textbf{无显著差异}（置信区间重叠），选 \code{CostPerSolved} 低的。
-  \item 若成本也接近，选实现更简单、复现更容易的那个。
-  \item 任何方案若违反轻量化硬约束，直接淘汰，无论正确率多高。
-\end{enumerate}
-\end{keybox}
+廉价 tactic 与 repair 是产品增强，不是库方法本身。它们可以启用，但必须另报
+\code{product-pass@k}，不得覆盖严格口径。
 
-\subsection{不可违反的研究约束}
+\[
+\mathrm{CostPerReusable}=
+\frac{\text{建库总 token}}{\#\{\ell:\mathrm{reuse}(\ell)\ge 2\}}.
+\]
 
-\begin{enumerate}[leftmargin=1.6em,itemsep=2pt]
-  \item \textbf{数据角色隔离}：建库集 $C$ 与报告集 $T$ 必须\textbf{不同源}；
-        调参集 $D$ 可反复使用；$T$ 在框架冻结后\textbf{只运行一次}。
-  \item \textbf{绝不输出未验证的证明}。
-  \item \textbf{不提交密钥}；\code{sgsr/models/.env} 不入库。
-  \item \textbf{报告可回溯}：每个正式数字必须能由 \code{experiments/results/} 下的文件复现；
-        文件名带 \code{mode} 与规模后缀。
-  \item \textbf{库版本冻结}：评测时库不再更新；在线生成的临时引理不进全局库。
-\end{enumerate}
+正确率差异显著时取正确率高者；置信区间重叠时取 CostPerSolved 更低者；
+成本接近时取实现更简单者。违反轻量化约束的方案直接淘汰。
 
 %======================================================================
-\section{系统总览}
+\section{固定架构：两个尺度，一个接口}
 
-\subsection{两个时间尺度}
+\subsection{总览}
 
-\begin{figure}[htbp]
-\centering
-\begin{tikzpicture}[font=\footnotesize,node distance=4.5mm]
-  \node[onl] (p) {命题};
-  \node[onl,right=5mm of p] (g) {门检};
-  \node[onl,right=5mm of g] (c) {廉价兜底};
-  \node[onl,right=5mm of c] (r) {分层检索};
-  \node[onl,right=5mm of r] (s) {求解 $k$ 篇};
-  \node[onl,right=5mm of s] (v) {内核验证};
-  \node[onl,right=5mm of v,fill=blue!14] (o) {输出+记账};
-  \draw[fl] (p)--(g); \draw[fl] (g)--(c); \draw[fl] (c)--(r);
-  \draw[fl] (r)--(s);  \draw[fl] (s)--(v); \draw[fl] (v)--(o);
-  \node[draw,dashed,rounded corners=4pt,inner sep=3.5mm,fit=(p)(o)] (box1) {};
-  \node[above=0.5mm of box1,font=\footnotesize\bfseries,text=sgblue]
-        {在线：一道题（秒级至分钟级）};
+\begin{center}
+\begin{tikzpicture}[node distance=4mm and 5mm]
+  \node[onl] (i1) {输入命题};
+  \node[onl,right=of i1] (i2) {门检};
+  \node[onl,right=of i2] (i3) {相关性召回};
+  \node[onl,right=of i3] (i4) {生成 $k$ 篇};
+  \node[onl,right=of i4] (i5) {内核终检};
+  \node[onl,right=of i5] (i6) {输出通过项};
+  \draw[arr] (i1)--(i2); \draw[arr] (i2)--(i3); \draw[arr] (i3)--(i4);
+  \draw[arr] (i4)--(i5); \draw[arr] (i5)--(i6);
 
-  \node[onl,below=22mm of p] (rp) {repair：失败码+错误原文回灌};
-  \draw[fl] (v.south) -- ++(0,-5mm) -| (rp.east);
-  \draw[fl] (rp.west) -- ++(-6mm,0) |- (s.south);
+  \node[store,below=10mm of i3] (snap) {冻结的 active\\LibrarySnapshot};
+  \draw[arr] (snap)--(i3);
 
-  \node[offl,below=26mm of rp] (d1) {采轨迹};
-  \node[offl,right=4mm of d1] (d2) {挖需求};
-  \node[offl,right=4mm of d2] (d3) {出题者出引理};
-  \node[offl,right=4mm of d3] (d4) {硬门筛选};
-  \node[offl,right=4mm of d4] (d5) {求解验证};
-  \node[offl,right=4mm of d5] (d6) {复用判据};
-  \node[offl,right=4mm of d6] (d7) {选入库};
-  \draw[fl] (d1)--(d2); \draw[fl] (d2)--(d3); \draw[fl] (d3)--(d4);
-  \draw[fl] (d4)--(d5); \draw[fl] (d5)--(d6); \draw[fl] (d6)--(d7);
-  \node[draw,dashed,rounded corners=4pt,inner sep=3.5mm,fit=(d1)(d7)] (box2) {};
-  \node[below=0.5mm of box2,font=\footnotesize\bfseries,text=sggreen]
-        {离线：一批课程集（小时级）};
-
-  \draw[fl] (d7.north) -- ++(0,4mm) -| (r.south)
-        node[pos=0.25,right=0.5mm,font=\scriptsize,text=sggray]{库注入（受 token 预算约束）};
+  \node[offl,below=10mm of snap,xshift=-42mm] (o1) {C-build\\轨迹与需求};
+  \node[offl,right=of o1] (o2) {候选与硬门};
+  \node[offl,right=of o2] (o3) {probation};
+  \node[offl,right=of o3] (o4) {C-measure\\公平曝光};
+  \node[offl,right=of o4] (o5) {reuse/cost\\晋升};
+  \draw[arr] (o1)--(o2); \draw[arr] (o2)--(o3); \draw[arr] (o3)--(o4);
+  \draw[arr] (o4)--(o5); \draw[arr] (o5)--(snap);
 \end{tikzpicture}
-\caption{两个时间尺度：在线求解与离线建库，只通过"库"这一个接口相连。}
-\end{figure}
-
-两个尺度只通过一个接口相连：\textbf{库}。在线只有求解者出场；
-出题者与评审者\textbf{只存在于离线}。
-
-\subsection{三个角色与代码归属}
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{2.4cm}p{4.6cm}Y@{}}
-\toprule
-\textbf{角色} & \textbf{担当者} & \textbf{代码位置与状态} \\
-\midrule
-求解者 & 语言模型（API），整篇生成证明 &
-\lp{sgsr/models/proxy.py} 的 \code{/solve}；已实现 \\
-\midrule
-出题者 & 语言模型（API），条件化生成引理候选 &
-\lp{sgsr/models/prompts.py} 的 \code{conjecture\_prompt}；
-\lp{sgsr/pipeline/conjecture.py}；已实现，需扩展条件化信号 \\
-\midrule
-评审者（Guide） & \textbf{形式化判据}：硬门 + 复用判据；\textbf{不用语言模型} &
-硬门已实现（\code{SgsLean/} 下四个模块）；
-\textbf{复用判据待实现} \\
-\midrule
-（对照组） & SGS 原始的 LLM 打分 rubric &
-\code{/guide} + \code{GuideClient} + rubric，\textbf{完整保留}，
-作为实验 A 组 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\subsection{四类数据与不相交要求}
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{1.6cm}p{3.0cm}p{3.4cm}Y@{}}
-\toprule
-\textbf{符号} & \textbf{角色} & \textbf{用量} & \textbf{来源要求} \\
-\midrule
-$C$ & 建库：采轨迹、挖需求、出引理 &
-100 至 300 道 & 来源甲；\textbf{与 $D,T$ 不同源} \\
-\midrule
-$D$ & 调参：定 $k$、阈值、库容；看方向 &
-50 至 150 道 & 来源乙 \\
-\midrule
-$T$ & 最终报告 &
-50 至 150 道 & 来源乙，\textbf{与 $D$ 不相交}；只跑一次 \\
-\midrule
-$W_{sel}$ & 复用判据的测量与选择 &
-$= C$ 的一个子集 & 只能是 $C$ \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\begin{warnbox}
-\textbf{为什么必须两个来源}：如果建库用的题与报告的题来自同一份数据，
-那么"库对报告集的增益"里就混进了"库见过这些题"的成分，测试集信息泄漏，
-结论作废。这是我们此前踩过的真实错误，处理方案写在 \lp{sgs-reap/docs/data-protocol.md}。
-\end{warnbox}
-
-%======================================================================
-\section{单题求解流程（在线）}
-
-以下每一步都给出：模块、输入、（字段级）输出、算法要点、失败处理、成本记账。
-
-\subsection{步骤 1：输入解析}
-
-\begin{specbox}
-\textbf{模块}：\lp{sgsr/pipeline/prover.py} 的 \code{parse\_input}\\
-\textbf{输入}：\code{.lean} 文件路径或命题字符串\\
-\textbf{输出}：\code{\{"stmt": str, "origin": str, "binders": []\}}\\
-\textbf{算法}：定位 \code{theorem} 或 \code{example} 语句，取语句名与绑定变量，
-把 \code{(x : T) (h : P)} 形式改写为全称量化 \code{forall x : T, P -> ...}
-（协议 v1.2 要求闭式命题，不支持局部上下文透传）。\\
-\textbf{失败处理}：无法抽取则记 \code{parse\_error} 并返回；
-这属于输入问题，不是"证不出来"，不得计入失败率。\\
-\textbf{成本}：0。
-\end{specbox}
-
-\subsection{步骤 2：门检}
-
-\begin{specbox}
-\textbf{模块}：\lp{sgslean/SgsLean/Gate.lean}，经 Lean 服务调用\\
-\textbf{输入}：\code{stmt}\\
-\textbf{输出}：\code{\{"ok": bool, "reason": str, "isProp": bool\}}\\
-\textbf{算法}：把语句 elaborate 成类型表达式，检查它是不是 \code{Prop}。\\
-\textbf{失败处理}：\code{ok=false} 则终止并记录，不计入解出率分母之外的分母。\\
-\textbf{成本}：0 次模型调用；Lean 侧 1 个作业。
-\end{specbox}
-
-\subsection{步骤 3：廉价 tactic 兜底}
-
-\begin{specbox}
-\textbf{模块}：扩展 \lp{sgslean/SgsLean/Trivial.lean}，新增
-\code{tryCheapTactics : String -> TacticM (Option String)}；
-在 \lp{sgslean/SgsLean/Server.lean} 增加命令 \code{cheap}。\\
-\textbf{输入}：\code{stmt}\\
-\textbf{输出}：\code{\{"hit": bool, "tactic": str, "proof": str\}}；
-命中时 \code{proof} 就是该 tactic 本身。\\
-\textbf{算法}：在孤立义务目标上依次尝试下表 tactic，任一条在预算内清空子目标即返回。\\
-\textbf{失败处理}：全部未命中则进入步骤 4。\\
-\textbf{成本}：0 次模型调用。
-\end{specbox}
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{1.4cm}p{6.6cm}Y@{}}
-\toprule
-\textbf{顺序} & \textbf{tactic 清单} & \textbf{说明} \\
-\midrule
-第一批 & \code{rfl}, \code{decide}, \code{simp}, \code{norm\_num}, \code{omega} &
-零参数、最便宜，已有 \code{Trivial} 模块的 \code{probes} 覆盖了其中三条，直接扩展 \\
-\midrule
-第二批 & \code{ring}, \code{field\_simp}, \code{positivity}, \code{linarith},
-\code{nlinarith}, \code{constructor} + \code{aesop} &
-中等成本；\code{aesop} 依赖 Mathlib \\
-\midrule
-第三批 & \code{aesop} 加更大预算 &
-最贵的一档，放在最后 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-心跳预算通过环境变量 \code{SGSLEAN\_TRIVIAL\_HEARTBEATS} 设置，
-标定值必须写进实验记录（它是"非平凡"判据的定义参数）。
-
-\subsection{步骤 4：分层检索}
-
-\begin{specbox}
-\textbf{模块}：新增 \lp{sgsr/pipeline/retrieval.py}，函数
-\code{retrieve(stmt, budget) -> List[Premise]}\\
-\textbf{第一层（精排层）}：从\textbf{我们自己的库} $L$ 中取前 $n_1$ 条，
-按 \code{score}（定义见 5.5 节）降序。实现先用廉价的符号重叠打分，
-库规模超过 200 条后再换成嵌入检索。\\
-\textbf{第二层（兜底层）}：调用\textbf{外部}前提检索工具
-（\code{LeanSearch v2} 的 API，或自托管的 \code{LeanExplore}），取前 $n_2$ 条。
-\textbf{不自己训练检索器}——这条赛道已被充分占据，自研期望收益低。\\
-\textbf{输出}：\code{\{"name","statement","source":"library"|"mathlib","tokens"\}}\\
-\textbf{预算控制}：两类前提拼进提示词的总 token 数不得超过 \code{CTX\_LEMMA\_BUDGET}
-（默认 1200 token），超出则按 score 截断。\\
-\textbf{失败处理}：外部检索不可用则跳过第二层并记录 \code{retrieval\_degraded=true}；
-不得因此中断求解。\\
-\textbf{成本}：检索 API 的调用若计费则记入成本，本地库检索记 0。
-\end{specbox}
-
-\subsection{步骤 5：求解（生成候选证明）}
-
-\begin{specbox}
-\textbf{模块}：\lp{sgsr/models/proxy.py} 的 \code{/solve}；客户端在
-\code{prover.py} 内。\\
-\textbf{输入}：\code{stmt}、检索到的前提、采样数 $k$、温度、token 上限\\
-\textbf{输出}：\code{\{"proofs": [str], "usage": \{...\}, "model": str, "seed": int\}}\\
-\textbf{算法}：单次调用返回 $k$ 篇候选（由 \code{solve\_prompt} 要求模型输出
-多段以分隔符隔开的脚本，由 \code{extract\_proofs} 解析）。
-若解析出的数量小于 $k$，如实记录实际数量。\\
-\textbf{失败处理}：后端不可用（503 或超时）则重试一次，仍失败则本轮判失败并记录
-\code{backend\_error}（\textbf{不得}把它当成"模型证不出"）。\\
-\textbf{成本}：记 \code{prompt\_tokens} 与 \code{completion\_tokens}。
-\end{specbox}
-
-\subsection{步骤 6：内核验证}
-
-\begin{specbox}
-\textbf{模块}：\lp{sgslean/SgsLean/Verify.lean}，经 Lean 服务批量调用\\
-\textbf{输入}：\code{(stmt, proof)} 对，一次批量提交 $k$ 对\\
-\textbf{输出（每篇）}：\code{\{"ok": bool, "reason": str, "detail": str,
-"goalsLeft": int, "finalChecked": bool\}}\\
-\textbf{算法}：造孤立义务目标，用 \code{wrapProofScriptAsTactic} 包装脚本，
-执行后检查赋值中无 \code{sorry} 与残余元变量，最后交内核复核。\\
-\textbf{结构化的 \code{reason} 码表}：\code{ok} / \code{parse\_error} /
-\code{unknown\_identifier} / \code{type\_error} / \code{unclosed\_goals} /
-\code{mvar\_or\_sorry} / \code{timeout} / \code{exception} / \code{final\_check\_failed}。\\
-\textbf{成本}：Lean 墙钟；批处理时按批大小放大心跳预算（我们踩过这个坑）。
-\end{specbox}
-
-\subsection{步骤 7：repair 定向重试}
-
-\begin{specbox}
-\textbf{模块}：新增 \lp{sgsr/pipeline/repair.py}，函数
-\code{repair(stmt, failed: List[Attempt], k) -> List[str]}\\
-\textbf{输入}：原命题 + 上一轮的失败记录（命题、脚本、\code{reason}、\code{detail}）\\
-\textbf{输出}：新一轮 $k$ 篇候选\\
-\textbf{算法}：把失败信息按固定模板拼进提示词（见 4.3 节的 \code{REPAIR} 区块），
-要求模型"针对这个错误重写"。若上一轮全部是 \code{mvar\_or\_sorry}，
-则在提示词中追加"不要使用 sorry / admit"的硬指令。\\
-\textbf{失败处理}：达到轮数上限 $R$（默认 2）或 token 预算耗尽即停止。\\
-\textbf{成本}：每轮记一次 \code{/solve} 的成本。
-\end{specbox}
-
-\subsection{步骤 8：输出与记账}
-
-\begin{specbox}
-\textbf{模块}：\code{prover.py} 的 \code{Prover.prove}\\
-\textbf{输出}：一个 \code{RunRecord}，字段见附录 A。含：
-是否解出、命中的步骤（兜底 / 求解 / repair）、通过的脚本、
-调用次数与 token、Lean 墙钟、库版本号。\\
-\textbf{硬规则}：任何未通过步骤 6 的脚本一律不出现在 \code{proof} 字段中。
-\end{specbox}
-
-\subsection{步骤 9：预算分配与停止条件}
-
-单题的 token 预算按\textbf{级联}分配，先便宜后贵：
-
-\[
-B_{\text{total}} = B_{\text{retrieval}} + k\cdot B_{\text{solve}} + R\cdot k\cdot B_{\text{repair}}
-\]
-
-默认取值：$k=4$，$R=2$，\code{CTX\_LEMMA\_BUDGET}=1200 token。
-停止条件是"某一步命中"，或"预算耗尽"。
-\textbf{不许}在没有预算上限的情况下无限重试——那样成本指标失去意义。
-
-%======================================================================
-\section{求解器规格}
-
-本节回答"用什么求解器、固不固定"。
-
-\subsection{默认配置（写死在配置文件里）}
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{4.0cm}p{3.6cm}Y@{}}
-\toprule
-\textbf{项} & \textbf{默认值} & \textbf{位置与说明} \\
-\midrule
-模型 & \code{deepseek-flash} & \lp{sgsr/models/.env} 的 \code{DEEPSEEK\_MODEL} \\
-\midrule
-后端 & OpenAI 兼容 HTTP & \lp{sgsr/models/backend.py} \\
-\midrule
-温度（求解） & 0.6 & \code{SOLVE\_TEMPERATURE}；求解要多样性 \\
-\midrule
-采样数 $k$ & 4 & 命令行参数；实验记录必须写入实际值 \\
-\midrule
-输出上限 & 4096 token & \code{SOLVE\_MAX\_TOKENS} \\
-\midrule
-思考开关 & \textbf{关闭} & \code{DISABLE\_THINKING=1}。
-实测关闭后单次约 83 token，开启后需要 3k 至 10k token；
-作为成本杠杆在实验 C 组之外单独做一次对照 \\
-\midrule
-温度（出题） & 1.0 & \code{CONJECTURE\_TEMPERATURE} \\
-\midrule
-温度（评审） & 0.0 & \code{GUIDE\_TEMPERATURE}，只在 A 组用到 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\subsection{求解器固定吗：分两层回答}
+\end{center}
 
 \begin{keybox}
-\textbf{代码层面：可插拔。}证明后端定义为统一接口——
-"给定命题与前提，返回若干候选证明脚本"。第 4 步是接口调用点，
-任何实现该接口的东西都能接进来（本地 tactic、API 模型、外部 hammer、以后的搜索）。
-这样做的好处是正确性由步骤 6 的内核闸门保证，与后端无关。
-
-\textbf{实验层面：冻结。}同一组对照（A/B/C）必须使用\textbf{同一模型、同一温度、
-同一 $k$、同一 token 上限}；这些值写入每次运行的元数据。
-跨实验更换模型时，\textbf{必须重新做难度标定}（因为"近失手"的集合会整体漂移）。
-
-\textbf{不做的事：}不训练、不微调求解器。换更好的模型是"改一行配置"，
-在我们的指标里属于成本与正确率的取舍，不属于方法本身。
+两个尺度只通过 \textbf{LibrarySnapshot} 相连。在线路径只读，不允许回写全局库；
+离线发布新快照后，必须记录快照哈希并重新做环境预检。正式评测期间快照冻结。
 \end{keybox}
 
-\subsection{提示词规格}
+\subsection{为什么要有试用池}
 
-求解提示词由固定区块拼成，\textbf{区块为空时整块不出现}——这样才能构成干净的两臂对照：
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{3.6cm}Y@{}}
-\toprule
-\textbf{区块} & \textbf{内容与约束} \\
-\midrule
-\code{ROLE} & 声明它是 Lean 4 证明助手，只输出 tactic 脚本 \\
-\midrule
-\code{TARGET} & 待证命题（闭式） \\
-\midrule
-\code{AVAILABLE LEMMAS} & 从库里检索出的已证引理，带常量名。
-库为空时\textbf{该区块整体不出现} \\
-\midrule
-\code{MATHLIB HINTS} & 检索到的 Mathlib 前提，可选 \\
-\midrule
-\code{CONSTRAINTS} & 不使用 \code{sorry} 与 \code{admit}；只输出脚本本体 \\
-\midrule
-\code{REPAIR} & 仅 repair 轮次出现：上一次的失败码与 Lean 错误原文 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-出题提示词同理，但把"命题"换成"未解目标"，并额外加入下面两个区块：
+新引理在产生时必然没有复用证据。如果要求 \code{reuse>0} 才接纳，库无法冷启动；
+如果一经证明就进入正式库，活动库又会退化成“所有可证候选的堆积”。因此库必须三态化：
 
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabularx}{\textwidth}{@{}p{4.6cm}Y@{}}
+\begin{tabularx}{\textwidth}{@{}p{2.5cm}Yp{3.2cm}@{}}
 \toprule
-\textbf{区块} & \textbf{内容与约束} \\
+\textbf{状态} & \textbf{含义} & \textbf{在线可见性} \\
 \midrule
-\code{BACKGROUND EVIDENCE (not the answer)} & 需求签名列表。
-\textbf{标题必须写明这是背景证据而不是答案} \\
-\midrule
-\code{SEEDS} & 库中已有引理的范例 \\
-\midrule
-\code{HARD RULE} & 候选必须提到目标中出现的至少一个符号；
-不得原样复述需求 \\
+probation & 已通过硬门并有内核证明，等待跨目标试用 & 正式在线不可见 \\
+active & 在非来源目标上获得足够曝光并达到复用门槛 & 进入冻结快照 \\
+cold & 曝光充分仍无复用证据，或从 active 淘汰 & 不可见，保留审计 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\textbf{已踩过的坑}：把需求裸列进提示词，模型会把需求原样抄回来当答案。
-因此需求区块的标题必须写明"这是背景证据，不是答案"，并配一条硬约束。
+%======================================================================
+\section{在线单题求解规格}
 
-\subsection{输出解析规则}
+\subsection{正式方法比较的核心路径}
 
-\code{extract\_proofs} 的规则（写死，不要每次改）：
-
-\begin{enumerate}[leftmargin=1.6em,itemsep=2pt]
-  \item 以代码块围栏（\code{```lean4} 或 \code{```}) 为单位切分；
-  \item 去掉围栏与首尾空白；丢弃空块；
-  \item 丢弃含 \code{sorry} 或 \code{admit} 的块（但要记录"模型吐了 sorry"这一事件，
-        因为它是模型能力的信号，我们实测占 6.4\%）；
-  \item 保留顺序，最多取 $k$ 个；
-  \item 若少于 $k$ 个，如实记录实际数量，\textbf{不用重复填充}。
+\begin{enumerate}[leftmargin=1.8em,itemsep=4pt]
+  \item \textbf{解析}：把声明或命题字符串转换为闭式命题；失败属于输入错误。
+  \item \textbf{门检}：确认能够 elaborate 且类型为 \code{Prop}；协议错误不能伪装成门检拒绝。
+  \item \textbf{读取快照}：校验库哈希、物化模块与 import 预检。
+  \item \textbf{相关性召回}：先按当前目标召回相关 active 引理。
+  \item \textbf{复用排序}：只在相关集合内按 \code{reuse/cost} 排序并做 token 截断。
+  \item \textbf{生成}：固定模型、温度、$k$ 与 token 上限，生成 $k$ 篇 tactic 脚本。
+  \item \textbf{终检}：批量执行，检查无 sorry、无残余元变量、无未闭合目标，并交内核复核。
+  \item \textbf{输出和记账}：只保存通过项；记录快照哈希、候选数、严格 pass@$k$ 与成本。
 \end{enumerate}
 
-\subsection{成本模型}
+外部 Mathlib 检索暂不进入核心流程。Mathlib 仍作为 Lean 环境和模型可调用的基础库；
+只有在出现稳定端点、明确成本和独立消融之后，才把外部检索作为扩展重新加入。
 
-每次调用的成本按 token 记为
+\subsection{产品增强层}
 
-\[
-\mathrm{cost} = p_{\text{in}}\cdot T_{\text{prompt}} + p_{\text{out}}\cdot T_{\text{completion}}
-\]
+廉价 tactic 可以在模型前运行，repair 可以在首轮全部失败后运行。二者必须满足：
 
-其中单价 $p$ 从配置文件读取（便于换模型时统一换算）。所有实验必须同时记录
-\textbf{token 数}与\textbf{折算金额}，因为单价会变，token 数不会。
-
-\subsection{换模型的影响（写在文档里，避免临时争论）}
-
-\begin{itemize}[leftmargin=1.6em,itemsep=2pt]
-  \item 换模型\textbf{不需要改代码}，只改配置。
-  \item 换模型后\textbf{必须重新标定难度}：$C$、$D$、$T$ 上每题的解出率都会变，
-        "近失手"集合随之漂移。
-  \item 换模型后\textbf{此前所有库与结论作废}，因为库的价值依赖于用它测出来的判据。
+\begin{itemize}[leftmargin=1.8em,itemsep=3pt]
+  \item 最终仍经过同一内核验证器；
+  \item 与核心路径共用同一执行引擎，不另写一套验证逻辑；
+  \item 报告中分开给出严格口径、cheap 增益、repair 增益和总成本；
+  \item 库 A/B 实验默认关闭，以免混淆库效果。
 \end{itemize}
 
-%======================================================================
-\section{引理库的建立与管理（离线）}
+\subsection{提示词分离}
 
-\subsection{一轮闭环的伪代码}
+\textbf{产品提示词}可以建议优先检查库引理，以提高实际求解率。
+\textbf{测量提示词}只能中性列出“这些引理可用”，不得写“优先引用”“更便宜”或
+“更不容易错”。否则引用率混入提示服从性，不能解释为复用证据。
+
+%======================================================================
+\section{离线建库规格}
+
+\subsection{C 的内部划分}
+
+C 在保持与 D/T 隔离的前提下，按稳定哈希确定性划分：
+
+\begin{itemize}[leftmargin=1.8em,itemsep=3pt]
+  \item \textbf{C-build}：基线求解、需求挖掘、候选生成和候选证明；
+  \item \textbf{C-measure}：给 probation 引理提供跨目标曝光，测量 reuse；
+  \item 候选的 \code{source\_target} 无论属于哪一块，都不得为自身贡献 reuse。
+\end{itemize}
+
+划分清单属于派生数据，不入库；manifest 必须记录划分算法、种子、指纹和规模。
+
+\subsection{一轮闭环}
 
 \begin{verbatim}
-function BUILD_ROUND(C, L, config):
-  (1) COLLECT     solve all problems in C; record traces (subgoal signatures)
-  (2) DEMAND      mine demands: d(g) = freq(g) * cost(g); require >= m targets
-  (3) CONJECTURE  for each unsolved target, condition on
-                  [target + demands + examples from L]; produce n candidates
-  (4) SCREEN      gate: well-formed Prop; hard gates: nontrivial AND novel
-  (5) PROVE       solve each candidate k_p times; >=1 kernel-checked => provable
-  (6) MEASURE     two-arm measurement on W_sel; compute reuse(l) and cost(l)
-  (7) SELECT      density greedy under token budget B_ctx -> new set S
-  (8) COMMIT      materialize S, compile-check, append to L, bump library version
-  return (updated L, round statistics)
+BUILD_ROUND(C_build, C_measure, snapshot, config):
+  1. solve C_build with the current frozen snapshot; collect verified traces
+  2. mine demands from normalized subgoals, deduplicated by target
+  3. conjecture candidates for unsolved C_build targets
+  4. hard-gate candidates: Prop, nontrivial, novel, provable
+  5. put verified candidates into probation, not active
+  6. schedule neutral, salted exposures on relevant C_measure targets
+  7. count constants only from kernel-accepted proofs; exclude source targets
+  8. promote by reuse/cost; move fully-tested failures to cold
+  9. materialize active entries, compile, preflight, freeze snapshot
+ 10. persist round report and immutable snapshot manifest
 \end{verbatim}
-
-\subsection{需求挖掘}
-
-\begin{specbox}
-\textbf{模块}：\lp{sgsr/pipeline/demand.py}（已实现，需按下列公式校准）\\
-\textbf{输入}：轨迹集合，每条轨迹含 (题目 id, 是否解出, 子目标签名序列)\\
-\textbf{子目标签名定义}：上下文 $\vdash$ 目标，两部分都经空白折叠归一化（签名的
-定义参数是"是否含上下文"，我们用的是含上下文的 v1.1）。\\
-\textbf{公式}：
-\[
-d(g) = \mathrm{freq}(g)\times \mathrm{cost}(g),\qquad
-\mathrm{freq}(g) = \sum_{\text{题目 } w} \mathbf{1}[g \text{ 出现在 } w \text{ 的轨迹中}]
-\]
-$\mathrm{cost}(g)$ 取该子目标在轨迹中出现位置的平均序号（越靠后越"下游"，越难）。
-\textbf{升级为"需求"的条件}（三个同时满足）：
-（i）出现在 $\ge m$ 个\textbf{不同}目标中，默认 $m=2$；
-（ii）$d(g)$ 排名前 $N_d$，默认 $N_d=20$；
-（iii）不是恒真或已被库中等价命题覆盖。\\
-\textbf{输出}：\code{\{"sig": str, "freq": int, "cost": float, "d": float,
-"targets": [id]\}} 列表，按 $d$ 降序。\\
-\textbf{分层统计}：成功轨迹与失败轨迹分开统计，两边的 $\mathrm{freq}$ 都进报告
-（失败轨迹里的高频子目标更可能是真缺口）。
-\end{specbox}
-
-\subsection{出题者}
-
-\begin{specbox}
-\textbf{模块}：\lp{sgsr/pipeline/conjecture.py} + \lp{sgsr/models/prompts.py}
-的 \code{conjecture\_prompt}\\
-\textbf{输入}：未解目标列表、需求签名、库中已有引理范例\\
-\textbf{输出}：候选引理列表，每条含 \code{statement} 与 \code{source\_target}\\
-\textbf{参数}：每个目标出 $n$ 条，默认 $n=3$；温度 1.0。\\
-\textbf{三组实验的区别只在这一步的输入}（见 8.1 节）：
-A 组只给未解目标；B 组给未解目标加需求；C 组给未解目标加\textbf{随机等量}的伪需求。\\
-\textbf{相关度过滤}：候选必须提到目标中出现过的至少一个符号（廉价文本代理），
-否则标 \code{fail\_irrelevant} 并由（不能混进"通过"）。
-\end{specbox}
 
 \subsection{硬门}
 
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabularx}{\textwidth}{@{}p{1.6cm}p{2.5cm}p{4.3cm}Y@{}}
+\begin{tabularx}{\textwidth}{@{}p{2.0cm}p{3.2cm}Y@{}}
 \toprule
-\textbf{硬门} & \textbf{模块（SgsLean/ 下）} & \textbf{判定} & \textbf{预算/参数} \\
+\textbf{门} & \textbf{判定} & \textbf{反向对照} \\
 \midrule
-合法 & \code{Gate.lean} & elaborate 成 \code{Prop} &
-无 \\
-\midrule
-非平凡 & \code{Trivial.lean} & \code{decide/simp/aesop} 在预算内解不出 &
-\code{SGSLEAN\_TRIVIAL\_HEARTBEATS}，默认 $2\times10^5$ \\
-\midrule
-新颖 & \code{Novelty.lean} & 不与父目标等价，也不与库中已有引理等价
-（$\alpha$ 等价 + 库检索未命中）& \code{against} 列表只放父目标与库，
-\textbf{不许}放全部目标（我们踩过这个坑：既违背语义又吃光预算）\\
-\midrule
-可证 & \code{Verify.lean} & 采样 $k_p$ 次，至少一篇过内核 &
-$k_p$ 默认 2 \\
+合式 & elaborate 后是 \code{Prop} & 非 Prop 与缺失响应必须分别失败 \\
+非平凡 & 配置内的廉价 tactic 不能证明 & \code{P=P}、\code{x=x}、\code{True} 必须被拒 \\
+新颖 & 不与父目标或已有候选/活动库等价 & 改名后的重复命题必须被拒 \\
+可证 & 至少一篇证明通过内核终检 & 含 sorry、残余目标或错误常量必须被拒 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\subsection{复用判据（本项目的核心）}
+证明步数、压缩长度和结构复杂度可以作为诊断字段，但不再成为第二套准入逻辑。
 
-这是本框架替换 SGS 的 Guide 的地方，也是唯一的方法性改动，因此写全。
+\subsection{复用判据}
 
-\subsubsection{要解决的问题}
-
-SGS 的 Guide 用 LLM 打分衡量"这条合成题\textbf{对当前这道目标}有没有用"。
-但本领域反复承认的痛点是"抽出的引理\textbf{大多问题特异、不可复用}"。
-\textbf{判据和痛点是错位的}：一个只优化"帮到当前目标"的信号，
-必然倾向于奖励问题特异的引理。
-
-\subsubsection{定义}
-
-设库 $L = \{\ell_1,\dots,\ell_m\}$，工作负载 $W_{sel}$（$C$ 的子集，$|W_{sel}|=n_w$）。
-对每条引理 $\ell$：
+对 probation 或 active 引理 $\ell$：
 
 \[
-\mathrm{reuse}(\ell) = \left|\left\{ w \in W_{sel}:\ \exists y \in Y_w,\
-\mathrm{verify}(w,y)=1 \ \wedge\ \ell \in \mathrm{consts}(y)\right\}\right|
+\mathrm{reuse}(\ell)=
+\left|\left\{w:\ w\ne\mathrm{source}(\ell),\
+\exists y,\ \mathrm{verify}(w,y)=1\land
+\ell\in\mathrm{constants}(y)\right\}\right|.
 \]
-
-即：在给库 $L$ 的条件下解出的题目中，有多少\textbf{不同题目}的通过验收的证明
-\textbf{实际引用}了 $\ell$。$\mathrm{consts}(y)$ 由 Lean 侧从证明脚本抽取常量集合得到
-（复用 \code{Measure/}\allowbreak\code{Dependency.lean} 的依赖抽取能力）。
-
-\begin{keybox}
-\textbf{三个设计决定，必须照做}：
-\begin{enumerate}[leftmargin=1.5em,itemsep=2pt,topsep=2pt]
-  \item \textbf{按"不同目标"计数，不按引用次数}。一条引理被同一道题引用十次，
-        记 1 次复用。理由是"可复用"的定义就是跨题。
-  \item \textbf{只统计通过验收的证明的引用}。失败的尝试里出现某个名字不算复用，
-        否则模型乱写名字就能刷分。
-  \item \textbf{必须做环境预检}：先用一条最便宜的作业确认处理臂真的能
-        \code{import} 到库；否则"处理臂"其实只是提示词里多了一段文字。
-        这一步我们曾因为一个编译目标的坑得出过完全错误的结论。
-\end{enumerate}
-\end{keybox}
-
-成本定义为引理进入提示词的开销：
-\[
-\mathrm{cost}(\ell) = \text{token}\big(\mathrm{render}(\ell)\big)
-\]
-即把 $\ell$ 的声明与说明渲染成提示词区块后的 token 数（用与后端一致的分词器估算）。
-
-得分：
-\[
-\mathrm{score}(\ell) = \frac{\mathrm{reuse}(\ell)}{\mathrm{cost}(\ell)}
-\]
-
-\subsubsection{选择算法}
-
-目标：在提示词预算内选一个子集，使覆盖增益最大。
 
 \[
-\max_{S\subseteq \mathcal{P}} \ \sum_{w\in W_{sel}}
-\Big[\,r_S(w) - r_\varnothing(w)\,\Big]
-\quad \text{s.t.}\quad \sum_{\ell\in S}\mathrm{cost}(\ell)\le B_{ctx},
-\ \ S\ \text{内每条过硬门}
+\mathrm{cost}(\ell)=\mathrm{tokens}(\mathrm{render}(\ell)),\qquad
+\mathrm{score}(\ell)=\frac{\mathrm{reuse}(\ell)}{\mathrm{cost}(\ell)}.
 \]
 
-其中 $r_S(w)$ 是给库 $S$ 时题目 $w$ 的通过率（通过数除以 $k$，分母固定为 $k$，
-没生成出证明也算失败），$r_\varnothing(w)$ 是无库基线。
-
-\begin{itemize}[leftmargin=1.6em,itemsep=3pt]
-  \item \textbf{理论上}：$r_S(w)$ 是并集形式的覆盖函数，\textbf{单调子模}。
-        在\textbf{条数约束}下，标准贪心有 $1-1/e$ 的近似保证；
-        在\textbf{预算约束}下，用"边际增益除以成本"的密度贪心并与最优单条取较优，
-        有 $\tfrac12(1-1/e)$ 的保证。报告里要写明实际用的是哪一种。
-  \item \textbf{工程上}：真算边际增益需要对每条候选重跑两臂，代价过高。
-        第一阶段用 $\mathrm{score}(\ell)$ 作为边际增益的\textbf{代理}，
-        并\textbf{校验代理的忠实度}：随机抽 10 条候选，
-        同时计算真实的边际增益与代理值，报告两者的 Spearman 相关系数。
-        相关系数低于 0.5 则说明代理不可用，改用其他代理（如依赖图 PageRank）。
-  \item \textbf{预算口径}：默认按 token 预算 $B_{ctx}$（因为上下文才是真实成本），
-        同时报一份"按条数 $B$"的结果便于与文献对照（DreamProver 用 100 条）。
-\end{itemize}
-
-\subsubsection{淘汰规则}
-
-每 $R_{evict}$ 轮（默认 3 轮）重跑一次 $W_{sel}$ 上的复用测量，然后：
-
-\begin{enumerate}[leftmargin=1.6em,itemsep=2pt]
-  \item \textbf{僵尸淘汰}：$\mathrm{reuse}(\ell)=0$ 且已入库超过 $R_{evict}$ 轮
-        $\Rightarrow$ 移出并存入冷存文件（不删除，保留来源）。
-  \item \textbf{低效降级}：$\mathrm{score}(\ell)$ 低于全库中位数的一半
-        $\Rightarrow$ 降到冷存，腾出预算。
-  \item \textbf{去重}：新候选与库内已有引理的语句若归一化后相同，或 $\alpha$ 等价，
-        直接丢弃（复用 \code{Novelty.lean}）。
-  \item \textbf{探索额度}：新入库引理在前 $R_{evict}$ 轮内\textbf{不参与淘汰}，
-        保证它有机会被测量到——否则新引理永远活不过第一轮，
-        库会退化成一个只增不减的僵化集合。
-\end{enumerate}
-
-\subsection{物化与入库}
-
-\begin{specbox}
-\textbf{模块}：\lp{sgslean/SgsLean/Materialize.lean}（已实现）\\
-\textbf{输出文件}：\lp{sgslean/SgsLean/GeneratedLibrary.lean}
-（必须放在库内才能被 \code{import}）\\
-\textbf{命名规则}：\code{sgs\_lem\_<序号>}，序号单调递增，永不复用。\\
-\textbf{必须紧接着执行}：\code{lake build SgsLean.GeneratedLibrary}
-\textbf{（模块目标，不能用库目标）}。库目标 \code{lake build SgsLean}
-不会编译这个模块，这曾导致"处理臂其实没有库"的假结论。\\
-\textbf{库记录文件}：\lp{sgs-reap/experiments/library.jsonl}，
-每行一条，字段见附录 A。\\
-\textbf{版本快照}：每次入库后写 \code{library\_v<N>.jsonl} 并记录
-文件内容的哈希，作为本次实验的库版本号。
-\end{specbox}
-
-%======================================================================
-\section{有没有要训练的小规模参数}
-
-\begin{keybox}
-\textbf{答案：没有。可训练参数为 0。}
-\end{keybox}
-
-明确列出不训练的东西，以及不训练的理由（避免以后反复讨论）：
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{3.6cm}p{3.0cm}Y@{}}
-\toprule
-\textbf{不做的事} & \textbf{理由} & \textbf{替代方案} \\
-\midrule
-微调 / 强化学习求解器 & 需要 GPU 与大规模数据，超出资源约束；
-且本项目的贡献定位是"模型之上的脚手架" &
-换更好的 API 模型（改一行配置） \\
-\midrule
-训练出题者 & 同上 &
-用提示词条件化（需求 + 库范例） \\
-\midrule
-训练评审者（Guide） & 同上 &
-\textbf{改用可计算的形式化判据}（硬门 + 复用判据），这是本项目的核心改动 \\
-\midrule
-训练检索器 & 已有成熟公开系统 &
-直接调用 LeanSearch v2 API 或自托管 LeanExplore \\
-\midrule
-训练难度预测器 & 会引入额外不确定性 &
-用实测解出率直接分档 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\textbf{预留接口（只留位，不实现）}：如果将来拿到 GPU，
-第一个要训练的对象是\textbf{出题者}，奖励为
-$R = R_{\text{可证硬门}}\times \mathrm{score}(\ell)$，
-即以"复用除以成本"为奖励信号——这正好是 SGS 的做法换一个奖励。
-代码上只需在 \code{pipeline/} 下留一个 \code{train\_conjecturer.py} 的空壳与数据导出函数，
-数据格式沿用第 5 节的候选记录，不需要改动其他模块。
-
-%======================================================================
-\section{数据集规格}
-
-\subsection{来源与用途}
-
-\begin{table}[htbp]
-\centering
-\footnotesize
-\begin{tabularx}{\textwidth}{@{}p{1.3cm}p{2.6cm}p{2.4cm}Y@{}}
-\toprule
-\textbf{集合} & \textbf{用途} & \textbf{规模} & \textbf{来源要求} \\
-\midrule
-$C$ & 建库：采轨迹、挖需求、出引理、复用测量 &
-100 至 300 道 & 单一领域的\textbf{来源甲}。
-不得与 $D$、$T$ 有任何重叠或同源关系 \\
-\midrule
-$D$ & 调参：定 $k$、阈值、库容；看方向 &
-50 至 150 道 & 同领域的\textbf{来源乙} \\
-\midrule
-$T$ & 最终报告 &
-50 至 150 道 & 来源乙，与 $D$ 切分且不相交；冻结后只跑一次 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\subsection{$C$ 的来源与同源检查}
-
-选一个领域（建议\textbf{不等式}或\textbf{组合}），$C$ 取自该领域的训练划分，
-凡被测试基准覆盖的数据集一律排除。执行前必须跑一遍检查脚本：
-
-\begin{enumerate}[leftmargin=1.6em,itemsep=2pt]
-  \item \textbf{命题级查重}：$C$ 中每条命题与 $D\cup T$ 做归一化后的文本比对，
-        命中即丢弃；
-  \item \textbf{来源级排查}：记录每条数据的原始出处，若 $C$ 与 $D\cup T$ 的出处
-        存在聚合关系（例如都派生自同一份聚合语料），必须抽样人工核对；
-  \item \textbf{泄漏标记}：每道题带 \code{source} 字段，实验记录里保留，
-        便于事后审计。
-\end{enumerate}
-
-\subsection{难度标定流程（必须先做）}
-
-"近失手"的题目才是有信号的地方：太难（解出率 0）两臂皆零，太易（解出率 1）
-不需要引理。因此每换一次模型或 $k$，都要重新标定：
-
-\begin{verbatim}
-function CALIBRATE(dataset, solver, k):
-  for each problem w:
-      run solver k times; verify each attempt
-      rate(w) in {0, 1/k, ..., 1}
-  buckets:
-      impossible   rate == 0            # no signal: both arms give 0
-      near_miss    0 < rate < 1         # the only informative band
-      easy         rate == 1            # used only as a non-degradation check
-  return per-problem rates and bucket assignment
-\end{verbatim}
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{2.6cm}p{3.2cm}Y@{}}
-\toprule
-\textbf{档位} & \textbf{判据} & \textbf{用途} \\
-\midrule
-impossible & 解出率 $=0$ & \textbf{不用于测增益}（会对两臂都给出 0，无信息） \\
-\midrule
-\textbf{near\_miss} & $0<$ 解出率 $<1$ & \textbf{主要测量对象}；据实测约占一成 \\
-\midrule
-easy & 解出率 $=1$ & 只用于"给库不会变差"的反向对照 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\subsection{测试集 $T$ 是什么}
+必须按不同目标去重；失败证明、文本字符串命中和同一目标多次引用都不计数。
+每条 probation 引理至少获得规定数量的\textbf{相关目标曝光}后才能判定。曝光调度必须
+带轮次盐，防止后端缓存把重复试验变成同一输出的重放。
 
 \begin{warnbox}
-\textbf{不使用 miniF2F 作为主测试集。}理由：该基准已被做到 96\% 至 99\%，
-天花板效应会吞掉一切真实增益。它最多作为"不退化"的旁证出现。
+\textbf{解释边界}：reuse 是“被使用次数”，不是因果复用价值。它可用于晋升和排序，
+但不能单独证明引理提高了解题率。真实价值由冻结的 with/without 配对实验测量。
+本项目不再声称随机模型的真实 pass@$k$ 目标具有子模近似保证。
 \end{warnbox}
 
-\textbf{候选集合}（按优先级，均为公开的、有难度的分域集合）：
+\subsection{晋升、淘汰与快照}
+
+\begin{itemize}[leftmargin=1.8em,itemsep=3pt]
+  \item \textbf{晋升}：达到最小曝光数且 \code{reuse >= threshold}，再按 score 和库预算取舍。
+  \item \textbf{继续试用}：曝光不足，不能因 reuse 为 0 被淘汰。
+  \item \textbf{冷存}：曝光充分仍为 0，或活动库预算下被替换；记录原因与轮次。
+  \item \textbf{发布}：只物化 active；编译指定模块；预检成功后生成不可变 snapshot manifest。
+\end{itemize}
+
+快照至少记录版本、内容哈希、生成提交、active 条目列表、Lean import、模型配置、
+数据指纹和晋升阈值。正式评测报告只引用快照，不引用“当前可变 JSONL”。
+
+%======================================================================
+\section{数据协议}
 
 \begin{table}[htbp]
 \centering
-\footnotesize
-\begin{tabularx}{\textwidth}{@{}p{2.8cm}p{1.6cm}p{2.6cm}Y@{}}
+\small
+\begin{tabularx}{\textwidth}{@{}p{1.2cm}p{4.6cm}Y@{}}
 \toprule
-\textbf{名称} & \textbf{规模} & \textbf{领域} & \textbf{备注} \\
+\textbf{数据} & \textbf{用途} & \textbf{禁止} \\
 \midrule
-567NEQ & 92 & 不等式 & 首选。中等规模，领域单一，与 $C$ 来源分离 \\
-\midrule
-ChenNEQ & 42 & 不等式 & 与 567NEQ 同族，可合并或作交叉验证 \\
-\midrule
-MO-INT & 20 & 不等式 & 规模小，只作补充 \\
-\midrule
-CombiBench 子集 & 43 & 组合 & 若主领域改为组合则用这个 \\
-\midrule
-ProofNet & 371 & 本科数学 & 域更宽，可作为跨域旁证 \\
-\midrule
-PutnamBench & 660 & 本科竞赛 & \textbf{谨慎}：不同论文报告的数字差异达八倍，
-说明协议不一致，只用其子集并写清协议 \\
+C & 建库；内部拆分 C-build / C-measure & 与 D/T 同源 \\
+D & miniF2F valid；调参、debug、难度和预算选择 & 入库、需求挖掘、候选来源 \\
+T & miniF2F test；冻结后一次性最终评测 & 任何调参、建库或试跑 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\textbf{$T$ 的确定规则（写死为可执行判据）}：先用基线求解器在候选集合上跑 $k=3$ 的标定，
-保留\textbf{目标级非零解率落在 $[0.15,\ 0.85]$} 的题目构成 $T$，
-规模控制在 50 至 150 道。
+判断泄漏以来源为准，不以文本相似度为准。库条目必须带 \code{source\_target} 与
+\code{source\_corpus}。评测时在线产生的临时内容不得回写全局库。
 
-\begin{itemize}[leftmargin=1.6em,itemsep=2pt]
-  \item 非零解率高于 0.85：太易，无余量，弃用；
-  \item 低于 0.15：太难，两臂都测不出信号，弃用；
-  \item 若某候选集合里合格题目不足 50 道，则合并其他集合，或退化为自建集合——
-        做法是拿更大语料用基线筛出近失手题，并把筛选题与 $C$、$D$ 严格隔离。
-\end{itemize}
-
-\subsection{防泄漏检查清单（每次正式实验前逐条打勾）}
-
-\begin{enumerate}[leftmargin=1.6em,itemsep=2pt]
-  \item $C\cap(D\cup T)=\varnothing$，且来源无聚合关系；
-  \item 库中没有任何引理的 \code{source\_target} 落在 $D\cup T$ 上；
-  \item 需求挖掘只在 $C$ 上做过；
-  \item 所有超参数（$k$、$B_{ctx}$、$m$、$N_d$、阈值）都在 $D$ 上确定，
-        并写进报告；
-  \item $T$ 的运行计数为 1，且运行前已冻结库版本与代码提交号。
-\end{enumerate}
+当前 C=195（C1 63、C2 132），与 D/T 命题级重叠为 0。但现有 C2 抽样在 80 题标定中
+只有 5 条 near-miss，正式重建前必须按题面形态重选，并在 D 上冻结难度和预算规则。
 
 %======================================================================
 \section{实验设计}
 
 \subsection{三组对照}
 
-同一求解器、同一 $k$、同一课程集、同一工作负载、固定分母，
-\textbf{只改出题者的条件化信号与评审判据}：
-
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabularx}{\textwidth}{@{}p{0.8cm}p{3.6cm}p{3.4cm}Y@{}}
+\begin{tabularx}{\textwidth}{@{}p{1.2cm}p{3.4cm}p{3.4cm}Y@{}}
 \toprule
-\textbf{组} & \textbf{出题者输入} & \textbf{评审判据} & \textbf{对应} \\
+\textbf{组} & \textbf{候选生成条件} & \textbf{选择判据} & \textbf{回答的问题} \\
 \midrule
-\textbf{A} & 未解目标 & \textbf{LLM 打分}（SGS 的 rubric）&
-\textbf{SGS 原样}；\code{/guide} 与 rubric 已完整保留 \\
-\midrule
-\textbf{B} & 未解目标 $+$ 需求签名 & \textbf{复用 ÷ 成本} & 本框架 \\
-\midrule
-\textbf{C} & 未解目标 $+$ \textbf{随机等量}伪需求 & 复用 ÷ 成本 &
-消融：排除"增益只是来自多给了上下文" \\
+A & 真实需求 & SGS Guide & Guide 与形式化复用选择谁更好 \\
+B & 真实需求 & reuse/cost & 完整方法 \\
+C & 随机等量伪需求 & reuse/cost & 真实需求是否优于随机背景 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\textbf{三组必须完全同预算}：同样的 $k$、同样的候选数 $n$、同样的模型调用上限。
-若某组因为判据更贵而超支，必须在报告里按等成本截断后再比较。
+A/B 必须使用同一候选池，只改变选择判据；B/C 保持选择、预算和执行配置相同，
+只改变需求信号。三组共享模型、温度、$k$、token 上限、硬门、曝光计划、在线检索和验证器。
 
-\subsection{指标与公式}
+\subsection{两类测量不能混}
 
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{3.4cm}Y@{}}
-\toprule
-\textbf{指标} & \textbf{定义} \\
-\midrule
-目标级 pass@$k$ & 见 1.2 节公式；在 $T$ 上只算一次 \\
-\midrule
-复用率 & $\dfrac{\#\{\ell\in L:\mathrm{reuse}(\ell)\ge 2\}}{|L|}$
-（被至少两个不同目标引用的引理占比）\\
-\midrule
-僵尸率 & $\dfrac{\#\{\ell\in L:\mathrm{reuse}(\ell)=0\}}{|L|}$ \\
-\midrule
-平均复用度 & $\dfrac{1}{|L|}\sum_{\ell}\mathrm{reuse}(\ell)$ \\
-\midrule
-\code{CostPerSolved} & 总 token 除以解出题数 \\
-\midrule
-\code{CostPerReusable} & 建库 token 除以可复用引理数（\textbf{核心成本指标}）\\
-\midrule
-无库 / 有库增量 & $\mathrm{pass@}k_{L} - \mathrm{pass@}k_{\varnothing}$，
-两臂同 $k$、同题、同模型 \\
-\bottomrule
-\end{tabularx}
-\end{table}
+\begin{enumerate}[leftmargin=1.8em,itemsep=4pt]
+  \item \textbf{使用测量}：从通过证明的 constants 统计 reuse，用于库生命周期。
+  \item \textbf{效果测量}：同一目标、同一配置、冻结随机化方案下做无库/有库配对，
+        测严格 pass@$k$ 差值，用于结论。
+\end{enumerate}
 
-\subsection{样本量与统计功效（先算再跑）}
+报告必须给出配对差值、置信区间、按难度分层的结果、后端和协议错误、token 成本，
+并抽样做逐引理 with/without 消融。引用代理与真实边际增益的 Spearman 只能作为审计，
+不能替代主结果。
 
-在 $|T|$ 道题、每题 $k$ 次采样下，解出率的估计标准误约为
-$\sqrt{p(1-p)/|T|}$。取 $|T|=120$、$p=0.4$，则一个标准误约 4.5 个百分点。
-因此：
+\subsection{T 的一次性运行}
 
-\begin{itemize}[leftmargin=1.6em,itemsep=2pt]
-  \item 我们\textbf{能够}分辨 $10$ 个百分点以上的差异；
-  \item 我们\textbf{不能}分辨 3 个百分点以下的差异——这类差异一律报为"无显著差异"；
-  \item 若要分辨更小的差异，必须增大 $|T|$ 或对同一集合做重复测量并报置信区间。
-\end{itemize}
-
-这条要写进报告，避免把噪声当结论。同时提醒：题目级通过率是相关的，
-上述公式是乐观下界，实际置信区间应更宽（建议用自举法给出）。
-
-\subsection{预算与墙钟估算}
-
-以 $|C|=300$、$|W_{sel}|=150$、$|T|=120$、$k=4$、建库 3 轮、$n=3$ 估算：
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{4.6cm}p{2.6cm}p{2.6cm}Y@{}}
-\toprule
-\textbf{环节} & \textbf{模型调用} & \textbf{Lean 验证} & \textbf{备注} \\
-\midrule
-$C$ 上难度标定（$k=3$） & 900 & 900 & 一次性 \\
-\midrule
-三轮采集轨迹 & 2700 & 2700 & 每轮在 $C$ 上跑一遍 \\
-\midrule
-出题（每轮 $n=3$） & 约 1350 & 0 & 只对未解目标出题 \\
-\midrule
-可证硬门（$k_p=2$） & 约 2700 & 约 2700 & 每条候选两条 \\
-\midrule
-复用两臂测量（$k=4$） & 约 1200 & 约 1200 & $W_{sel}$ 上两臂 \\
-\midrule
-$T$ 上最终评测 & 约 480 & 约 480 & 只跑一次 \\
-\midrule
-\textbf{合计} & \textbf{约 9300 次} & \textbf{约 8000 次} & — \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-按每次调用平均 1.5k token 估算，总 token 约 \textbf{1.4 千万}，
-按当前 API 单价折算在\textbf{几十元}量级，远低于 500 元的单次实验上限。
-
-\textbf{真正的瓶颈是 Lean 墙钟}：按实测约 2.8 秒每篇（批处理摊销了导入），
-8000 篇约 \textbf{6 小时}，加上 Mathlib 导入与批间隙，估计 \textbf{8 到 10 小时}。
-因此计划里允许把一次完整循环拆到两天执行，中间落盘中间结果。
-
-\subsection{报告规范}
-
-\begin{itemize}[leftmargin=1.6em,itemsep=2pt]
-  \item 报告写入 \lp{sgs-reap/experiments/results/}，文件名带模式与规模后缀，
-        例如 \code{abc\_nearmiss\_}\allowbreak\code{k4.json}；
-  \item 每个报告必须含：库版本哈希、代码提交号、模型名与参数、$k$、
-        token 总量、逐题解出情况、三条成本指标、复用分布直方图；
-  \item 小规模试跑\textbf{不许}覆盖正式报告（用不同后缀）。
-\end{itemize}
+只有同时满足以下条件才允许运行 T：代码、超参、C 数据、库快照、评测脚本、随机种子、
+报告 schema 全部冻结；D 上装置检查通过；测试台账为空。结果无论好坏都如实报告。
 
 %======================================================================
-\section{分阶段实施计划}
+\section{实现边界与精简原则}
 
-每阶段给出：目标、要新增或修改的文件、函数签名、验收命令、闸门。
+\subsection{一个引擎，三个调用者}
 
-\subsection{阶段 P1：证明器本体}
+在线 Prover、离线 Runner 和两臂实验必须调用同一个“生成 → Lean 验证 → constants 提取”
+执行引擎。它们可以有不同配置，不能复制 HTTP、检索、验证和引用统计实现。
 
-\textbf{目标}：把"输入一条命题、输出一篇通过内核检验的证明"这件事跑通。
-这是大创交付物的主干，也是后续所有实验的入口。
+顶层脚本入口仍保持五个：单题、批量评测、离线闭环、配对测量、唯一测试入口。
+“一个概念一条实现路径”不等于把所有代码塞进一个大文件；可以拆内部模块，但必须有一个
+公共 facade 和一个字段协议。
 
-\begin{table}[htbp]
-\centering
-\footnotesize
-\begin{tabularx}{\textwidth}{@{}p{4.4cm}p{2.0cm}Y@{}}
-\toprule
-\textbf{文件} & \textbf{动作} & \textbf{内容} \\
-\midrule
-\lp{sgsr/pipeline/prover.py} & 新增 &
-\code{class Budget}、\code{class Attempt}、\code{class ProofResult}；
-\code{class Prover}，方法 \code{prove(stmt, budget) -> ProofResult}；
-内部按第 3 节九个步骤串起来 \\
-\midrule
-\lp{sgsr/pipeline/retrieval.py} & 新增 &
-\code{retrieve(stmt, budget) -> List[Premise]}；
-第一层库检索，第二层外部检索，含 token 截断与降级 \\
-\midrule
-\lp{sgsr/pipeline/repair.py} & 新增 &
-\code{repair(stmt, failed, k) -> List[str]} \\
-\midrule
-\lp{sgsr/models/prompts.py} & 修改 &
-新增 \code{repair\_prompt(stmt, failed, k)}，输出带 \code{REPAIR} 区块 \\
-\midrule
-\lp{sgslean/SgsLean/Trivial.lean} & 修改 &
-新增 \code{tryCheapTactics}，返回命中的 tactic 脚本（而不是 Bool）；
-扩展 tactic 清单为三批 \\
-\midrule
-\lp{sgslean/SgsLean/Server.lean} & 修改 &
-新增 \code{cheap} 命令 \\
-\midrule
-\lp{scripts/prove.py} & 新增 &
-命令行入口：\code{--file} 或 \code{--statement}，\code{--k}，
-\code{--library}，\code{--endpoint}，\code{--out} \\
-\midrule
-\lp{scripts/run_prover_eval.py} & 新增 &
-在给定集合上批量跑，输出 pass@$k$ 与三条成本指标 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\textbf{验收命令}：
-
-\begin{verbatim}
-python scripts/prove.py --statement "forall (n : Nat), n + 0 = n" --k 4
-python scripts/prove.py --file tests/examples/t1.lean --k 4
-python scripts/run_prover_eval.py --set D --k 4 \
-       --out experiments/results/p1_dev.json
-\end{verbatim}
-
-\textbf{闸门}：在 $D$ 的 20 道上跑出第一组 pass@$k$ 与 token 成本；
-兜底命中率单独报（它是不花钱的那部分）。
-
-\subsection{阶段 P2：小实验台}
-
-\textbf{目标}：把建库闭环在小规模上真正跑通，产物是一个能长大的库。
-
-\begin{table}[htbp]
-\centering
-\footnotesize
-\begin{tabularx}{\textwidth}{@{}p{4.4cm}p{2.0cm}Y@{}}
-\toprule
-\textbf{文件} & \textbf{动作} & \textbf{内容} \\
-\midrule
-\lp{tools/prepare_domain_corpus.py} & 新增 &
-把选定领域的多来源题目转成统一 \code{jsonl}；做命题级去重与同源检查；
-输出 $C$、$D$、$T$ 三个文件 \\
-\midrule
-\lp{scripts/calibrate_difficulty.py} & 新增 &
-调用求解器标定每题解出率，分档，输出近失手清单 \\
-\midrule
-\lp{sgsr/pipeline/coverage.py} & 修改 &
-新增 \code{reuse\_cost\_greedy(pool, ctx\_budget) -> List[str]}：
-按 $\mathrm{reuse}/\mathrm{cost}$ 的密度贪心，并与最优单条取较优 \\
-\midrule
-\lp{sgsr/pipeline/demand.py} & 修改 &
-按 5.2 节的公式与阈值校准；输出带 \code{targets} 字段 \\
-\midrule
-\lp{sgsr/pipeline/conjecture.py} & 修改 &
-条件化信号按 5.3 节扩展；相关度过滤接入 \\
-\midrule
-\lp{sgsr/pipeline/runner.py} & 修改 &
-把选择层从 \code{parent\_cover\_greedy} 换成 \code{reuse\_cost\_greedy}；
-加入复用测量与淘汰步骤 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\textbf{验收命令}：
-
-\begin{verbatim}
-python scripts/calibrate_difficulty.py --set C --k 3 \
-       --out experiments/results/calib_C.json
-python scripts/run_round.py --rounds 3 --curriculum data/C.jsonl \
-       --k 2 --n 3 --ctx-budget 1200
-python scripts/run_gate_g3_real.py --select nearmiss --limit 6 --k 4
-\end{verbatim}
-
-\textbf{闸门}：库规模达到 20 条以上；两臂测量能给出非零的复用计数
-（若复用计数全为 0，说明库或检索没有生效，先查环境预检与检索层，不要继续）。
-
-\subsection{阶段 P3：三组对照}
-
-\textbf{目标}：拿到 A/B/C 的对照数据。
-
-\begin{table}[htbp]
-\centering
-\footnotesize
-\begin{tabularx}{\textwidth}{@{}p{4.4cm}p{2.0cm}Y@{}}
-\toprule
-\textbf{文件} & \textbf{动作} & \textbf{内容} \\
-\midrule
-\lp{scripts/run_ablation_abc.py} & 新增 &
-按 8.1 节跑三组，每组产出库、复用分布、成本与 pass@$k$；
-强制写入库版本与提交号 \\
-\midrule
-\lp{sgsr/pipeline/runner.py} & 修改 &
-支持 \code{--conditioning \{target,demand,random\}} 与
-\code{--judge \{llm,reuse\}} 两个开关 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\textbf{验收命令}：
-
-\begin{verbatim}
-python scripts/run_ablation_abc.py --group A --rounds 3 --k 2 --n 3
-python scripts/run_ablation_abc.py --group B --rounds 3 --k 2 --n 3
-python scripts/run_ablation_abc.py --group C --rounds 3 --k 2 --n 3
-\end{verbatim}
-
-\textbf{闸门}：三组都得到可比较的同一格式报告；
-若 A 组因 LLM 评审成本膨胀而超预算，按等成本截断后再比。
-
-\subsection{阶段 P4：成本与复用分析}
-
-\textbf{目标}：把结果整理成论文的核心图表。
-
-\begin{table}[htbp]
-\centering
-\footnotesize
-\begin{tabularx}{\textwidth}{@{}p{4.4cm}p{2.0cm}Y@{}}
-\toprule
-\textbf{文件} & \textbf{动作} & \textbf{内容} \\
-\midrule
-\lp{scripts/analyze_costs.py} & 新增 &
-输出：三组的成本 Pareto 曲线、三条成本指标对比、
-复用分布直方图、僵尸率随轮次变化曲线 \\
-\midrule
-\lp{scripts/audit_labels.py} & 新增 &
-审计"引用计数"这一标签的可靠性（抽样人工核对），
-因为检索类工作已证明这类代理标签可能只有约一半吻合 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\textbf{闸门}：产出论文主图（复用率对成本）与主表（三组对比）。
-
-\subsection{阶段 P5：写作}
-
-大创报告 + 论文短文。论文的骨架已经定好：
-问题（判据与痛点错位）、方法（复用判据 + 需求条件化）、对照（A/B/C）、
-结果（三组在同等预算下的复用率与成本）、限制。
-
-%======================================================================
-\section{风险与降级预案}
+\subsection{保留、降级与删除}
 
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabularx}{\textwidth}{@{}p{3.4cm}p{4.0cm}Y@{}}
+\begin{tabularx}{\textwidth}{@{}p{2.0cm}Y@{}}
 \toprule
-\textbf{风险} & \textbf{征兆} & \textbf{降级方案} \\
+\textbf{类别} & \textbf{内容} \\
 \midrule
-复用计数始终为 0 & 两臂测量里没有一条引理被引用 &
-先查环境预检与检索层（这是工程问题，不是结论）；
-仍为 0 则说明"提示词注入不被使用"，转为研究该现象本身 \\
-\midrule
-三组无差异 & A/B/C 的复用率与 pass@$k$ 都在噪声内 &
-报告为"条件化信号不影响结果"的实证结论，并把成本 Pareto 作为主结果 \\
-\midrule
-库长不起来 & 硬门淘汰率过高（如非平凡率极低）&
-放宽非平凡预算；或改用难度更低的课程集让模型能产出可证的引理 \\
-\midrule
-Lean 墙钟失控 & 单轮超过 4 小时 &
-缩小 $C$ 与 $W_{sel}$；确认批处理只付一次 Mathlib 导入 \\
-\midrule
-外部检索不可用 & 第二层检索超时 &
-只用第一层（自建库）跑完全部实验，并在报告里注明 \\
+保留 & Gate、Verify、Trace.constants、Materialize、常驻服务、数据守卫、Guide 对照 \\
+核心重构 & 统一执行引擎、库三态、冻结快照、正确两臂统计、相关性优先检索 \\
+降级扩展 & cheap、repair、外部 Mathlib 检索；不进入库主实验 \\
+退出主线 & Compression/delta\_len、未实测的子模保证、未使用配置与重复路径 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\textbf{贯穿始终的底线}：无论实验结果如何，
-\textbf{证明器本体与一套可复现的成本账都是完整的大创交付物}。
-论文部分允许负结果。
+历史日志和 archive 保留事实，但 README、AGENTS、思路文档和接口协议不得继续引用旧结论。
 
+%======================================================================
+\section{当前事实与迁移状态}
+
+\subsection{可继续使用的基础}
+
+Gate、内核终检、证明项依赖抽取、物化编译、常驻 Lean 服务、数据角色守卫和逐题落盘
+已经具备。纯 Python 自检当前为 72 条断言。
+
+\subsection{旧资产的正确定位}
+
+\begin{warnbox}
+现有 \lp{sgs-reap/experiments/library.jsonl} 的 35 条全部 reuse=0，并含 \code{a=a}、
+集合基数自反等可由 \code{rfl} 证明的平凡条目。它是开发期装置资产，不是正式活动库。
+
+\code{g3\_c\_device\_n12\_k2.json} 所报“14/24 引用”按生成文本是否包含
+\code{sgs\_lem} 统计，包含失败证明，不能作为正式 reuse 证据。
+
+\code{p1\_dev\_k4\_n20.json} 仍是 9 题、\code{partial=true} 的开发报告。
+\end{warnbox}
+
+\subsection{代码迁移清单}
+
+\begin{enumerate}[leftmargin=1.8em,itemsep=3pt]
+  \item 统一在线、离线和两臂执行路径；
+  \item 两臂引用改为通过证明的 Lean constants；
+  \item 实现 probation/active/cold 和 snapshot manifest；
+  \item 修复非平凡硬门并加入 \code{rfl} 反例；
+  \item 改为相关性先召回、reuse/cost 后排序；
+  \item 分开产品提示词与中性测量提示词；
+  \item 重选 C2、重建库、再跑 D 装置检查。
+\end{enumerate}
+
+迁移完成前不运行正式 P3，不运行 T。
+
+%======================================================================
+\section{阶段计划与验收}
+
+\subsection{P0：连接正确性重构}
+
+交付：统一执行引擎、正确引用统计、库三态、快照协议、硬门反例测试。
+闸门：一条失败证明即使写了库名也不计 reuse；一条 \code{rfl} 平凡候选不能进入 probation；
+同一来源目标不能为自己的候选贡献 reuse。
+
+\subsection{P1：语料与正式建库}
+
+交付：按题面形态重选 C2；稳定划分 C-build/C-measure；在 C 上重建 A/B/C 三个库。
+闸门：每个 active 条目均有可追踪的非来源目标引用证据和曝光记录；快照可物化、编译、预检。
+
+\subsection{P2：开发集冻结}
+
+交付：D 上确定模型、$k$、预算、曝光数、阈值、难度层和统计方案。
+闸门：严格口径报告可复现；后端错误和协议错误不进入失败分母；配置写入冻结清单。
+
+\subsection{P3：正式对照}
+
+先在 D 上运行 A/B/C；框架完全冻结后，在 T 上一次性运行。任何临时补丁都使 T 结果失效，
+必须如实记录而不能“修好再看一次”。
+
+\subsection{P4：成本、忠实度与写作}
+
+产出严格 pass@$k$ 主表、成本 Pareto、reuse 分布、曝光与晋升漏斗、代理忠实度审计、
+负结果和限制。论文不得把引用次数写成因果价值，也不得声称不适用的理论保证。
+
+%======================================================================
 \appendix
-\section{数据结构（字段级）}
+\section{核心字段契约}
 
-\subsection{运行记录 RunRecord}
-
-\begin{verbatim}
-{
-  "run_id": "20260921T101500Z",
-  "commit": "abc1234",
-  "model": "deepseek-flash",
-  "temperature": 0.6,
-  "k": 4,
-  "library_hash": "sha256:...",
-  "library_size": 37,
-  "stmt": "forall (n : Nat), n + 0 = n",
-  "solved": true,
-  "path": "cheap|solve|repair",
-  "proof": "intro n; rfl",
-  "attempts": [{"proof": "...", "reason": "type_error", "detail": "..."}],
-  "usage": {"prompt_tokens": 812, "completion_tokens": 143},
-  "lean_ms": 2870,
-  "wall_ms": 4120
-}
-\end{verbatim}
-
-\subsection{轨迹记录 Trace}
+\subsection{LibraryEntry}
 
 \begin{verbatim}
 {
-  "target": "aime_1988_p3",
-  "solved": false,
-  "k": 3,
-  "subgoals": [
-    {"sig": "x : Real, h : 0 < x |- Real.logb 2 x = Real.logb 8 x * 3",
-     "pos": 3, "from": "failed_attempt_2"}
-  ]
-}
-\end{verbatim}
-
-\subsection{需求记录 Demand}
-
-\begin{verbatim}
-{
-  "sig": "...",
-  "freq": 7,
-  "cost": 3.4,
-  "d": 23.8,
-  "targets": ["aime_1988_p3", "amc12a_2016_p3"]
-}
-\end{verbatim}
-
-\subsection{库条目 LibraryEntry}
-
-\begin{verbatim}
-{
-  "name": "sgs_lem_12",
-  "stmt": "forall (x : Real) (h : 0 < x), Real.logb 2 x = Real.logb 8 x * 3",
-  "proof": "intro x h; ...",
+  "name": "sgs_lem_<content-hash>",
+  "stmt": "...",
+  "proof": "...",
   "verified": true,
-  "source": "cand:aime_1988_p3#0",
-  "source_corpus": "C",
+  "source_corpus": "C2",
+  "source_target": "C2:...",
+  "status": "probation|active|cold",
   "reuse": 3,
-  "cost_tokens": 42,
-  "score": 0.0714,
+  "reuse_targets": ["..."],
+  "exposures": 8,
+  "exposure_targets": ["..."],
+  "cost_tokens": 24,
   "added_round": 2,
-  "status": "active|cold|evicted",
-  "library_version": "v7"
+  "promoted_round": 4,
+  "evicted_round": null
 }
 \end{verbatim}
 
-\section{代码骨架（函数签名清单）}
-
-以下签名是实现时的最低要求，命名可微调但语义不得更改。
+\subsection{LibrarySnapshot}
 
 \begin{verbatim}
-# sgsr/pipeline/prover.py
-class Budget: total_tokens:int; k:int; repair_rounds:int; ctx_lemma_tokens:int
-class Attempt: proof:str; reason:str; detail:str
-class ProofResult: solved:bool; proof:str|None; path:str
-                   attempts:list; usage:dict; lean_ms:int
-class Prover:
-    def __init__(self, endpoint:str, backend:str, library_path:str|None)
-    def prove(self, stmt:str, budget:Budget) -> ProofResult
-
-# sgsr/pipeline/retrieval.py
-class Premise: name:str; statement:str; source:str; tokens:int; score:float
-def retrieve(stmt:str, lib:list[LibraryEntry], budget:int) -> list[Premise]
-def retrieve_mathlib(stmt:str, n:int, timeout_ms:int) -> list[Premise]
-
-# sgsr/pipeline/repair.py
-def repair(stmt:str, failed:list[Attempt], k:int, endpoint:str) -> list[str]
-
-# sgsr/pipeline/coverage.py
-def reuse_cost_greedy(pool:list[LibraryEntry], ctx_budget:int) -> list[str]
-def two_arm_measure(workload:list[str], lib:list[LibraryEntry], k:int) -> dict
-def marginal_gain(workload:list[str], S:list[LibraryEntry],
-                  cand:LibraryEntry, k:int) -> float
-
-# sgsr/pipeline/runner.py
-class RoundRunner:
-    def run_round(self, round_idx:int) -> dict
-    def run(self, rounds:int) -> dict
-
-# scripts/prove.py, scripts/run_prover_eval.py, scripts/calibrate_difficulty.py,
-# scripts/run_ablation_abc.py, scripts/analyze_costs.py  (命令行入口)
+{
+  "version": "snapshot-...",
+  "sha256": "...",
+  "commit": "...",
+  "generated_at": "...",
+  "imports": ["Mathlib", "SgsLean.GeneratedLibrary"],
+  "active_names": ["sgs_lem_..."],
+  "corpus_hashes": {"C_build": "...", "C_measure": "..."},
+  "config": {"reuse_threshold": 2, "min_exposures": 4},
+  "build_ok": true,
+  "preflight_ok": true
+}
 \end{verbatim}
 
-\section{术语与缩写}
+\subsection{严格评测记录}
 
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}p{3.2cm}Y@{}}
-\toprule
-\textbf{术语} & \textbf{含义} \\
-\midrule
-SGS & 本项目所依据的自博弈框架（求解者、出题者、评审者三角色）\\
-\midrule
-硬门 & 候选引理入库前必须通过的布尔判据：合法、非平凡、新颖、可证 \\
-\midrule
-复用判据 & 本框架的核心：$\mathrm{reuse}(\ell)/\mathrm{cost}(\ell)$，
-用于选择、排序与淘汰 \\
-\midrule
-僵尸引理 & 入库后从未被任何目标引用的引理 \\
-\midrule
-近失手 & 解出率严格介于 0 与 1 之间的题目；唯一有增益信号的区间 \\
-\midrule
-两臂测量 & 同求解器、同 $k$，分别在有库与无库条件下测量通过率 \\
-\midrule
-环境预检 & 用一条最便宜的作业确认处理臂真的能 import 到库 \\
-\bottomrule
-\end{tabularx}
-\end{table}
+\begin{verbatim}
+{
+  "target": "...",
+  "snapshot_hash": "...",
+  "k": 4,
+  "strict": true,
+  "cheap_enabled": false,
+  "repair_rounds": 0,
+  "proofs_generated": 4,
+  "proofs_verified": 1,
+  "solved": true,
+  "verified_library_constants": ["sgs_lem_..."],
+  "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+  "backend_error": null,
+  "protocol_error": null
+}
+\end{verbatim}
 
 \end{document}

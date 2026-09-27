@@ -9,7 +9,7 @@
 | `minif2f_valid.jsonl` | **D** 开发集 | 调参、消融、看方向 | `tools/minif2f_to_jsonl.py`（冻结后不许改） |
 | `minif2f_test.jsonl` | **T** 测试集 | **只在框架冻结后跑一次** | 同上（冻结后不许改） |
 | `C.jsonl` | **C** 课程集（C1 + C2） | 建库全流程 | `tools/prepare_domain_corpus.py` |
-| `C_build.jsonl` | 建库用的 C 子集（near-miss + hard） | 建库全流程 | 难度分档后手挑；分档见下 |
+| `C_build.jsonl` | 旧建库子集（near-miss + hard） | 迁移参考 | 正式三态库前将由稳定哈希重建 |
 | `corpus_manifest.json` | C 的来源与同源检查记录 | 审计 | `tools/prepare_domain_corpus.py` 一并写出 |
 | `workload.jsonl` | 早期工作负载 W（定题用） | 调参 | 手写，已被 D/C 取代 |
 
@@ -25,6 +25,10 @@
 
 分档口径写在 `run_prover_eval.classify_tier` 的 docstring 里：`easy` = 兜底命中或首轮 k 篇全过；
 `nearmiss` = 首轮 0 < 通过 < k（**唯一有增益信号的档**）；`hard` = 首轮一篇都没过。
+
+正式建库还要从 C 稳定派生 `C-build`、`C-measure`（可选 `C-audit`）。划分按内容哈希和
+固定种子确定，不手工挑题；清单不入库，算法、种子、规模和指纹写入 manifest。
+候选的 `source_target` 不得为自己的 reuse 贡献计数。
 
 ## 格式与约束
 

@@ -1,13 +1,12 @@
-# sgslean：SG-Lean 的环境与交互层
+# sgslean：SG-Lean 的形式化裁判与库物化层
 
-SG-Lean 把 SGS 的三角色结构搬到推理期，只换两样东西：Guide 的判据换成形式化测量 G，
-「变强」的载体换成引理库 + prompt 记忆注入（不做任何梯度训练）。
-
-本包目前（P1.1）只提供 G 的第一道硬门与验证接口，不接任何外部服务、不依赖 Mathlib。
+SG-Lean 不训练模型。Lean 侧负责合式检查、非平凡检查、最终证明验证、证明项常量抽取、
+活动库物化和常驻批处理服务。它不判断自然语言“有用性”，也不把失败证明中的文本命中算作复用。
 
 ```lean
 SgsLean.Gate.check    (stmt : String) : TacticM GateResult    -- 能 elaborate 成命题吗
 SgsLean.Verify.verify (stmt proof : String) : TacticM VerifyResult  -- 整篇证明过吗
+SgsLean.Trace.trace   (stmt proof : String) : TacticM TraceResult   -- 通过项的 constants
 ```
 
 ## 构建与测试（离线）
@@ -16,7 +15,8 @@ SgsLean.Verify.verify (stmt proof : String) : TacticM VerifyResult  -- 整篇证
 # 只需做一次：复用 reap-fork 已编译好的依赖（不要加 /XD .git）
 robocopy ..\reap-fork\.lake\packages .lake\packages /E /NFL /NDL /NJH /NJS /NP
 
-lake build SgsLean SgsLean.Test
+lake build SgsLean SgsLean.Test sgslean-server
+lake build SgsLean.GeneratedLibrary
 ```
 
 测试全部是 `run_tac` 断言，**构建通过 ⟺ 断言通过**，不需要网络也不需要 Mathlib。
@@ -26,9 +26,11 @@ lake build SgsLean SgsLean.Test
 | 判定 | 含义 | 不负责 |
 |---|---|---|
 | `Gate.check` | 语句能在当前上下文 elaborate，且类型是命题 | 非平凡 / 新颖 / 可证 |
-| `Verify.verify` | `proof` 是 `stmt` 的一篇完整证明，并通过 reap 的 kernel 终检 | 非平凡性、是否值得入库 |
+| `Verify.verify` | `proof` 是 `stmt` 的完整证明并通过内核终检 | 是否值得入库 |
+| `Trace.trace` | 对验证结果记录子目标与证明项常量 | 因果价值 |
+| `Materialize` | 把 active 快照写成可 import 的 Lean 模块 | probation/cold 管理 |
 
-「非平凡（simp/aesop/decide 解不出）」「新颖（不 α-等价于已有引理）」「可证（solve_rate > 0）」
-属于 G 的其余部分，在 P2/P3 实现。
+正式 reuse 只允许来自“通过验证的证明项 constants”，按不同、非来源目标去重。
+开发期库中仍有 `rfl` 平凡命题，说明非平凡门需要先修复并补反向对照，再重建正式库。
 
-细节与实测证据见 `../docs/phase3-log.md`。
+当前规格见 `../../docs/SG-Lean思路文档第二版.pdf`；历史证据见 `../docs/history/`。

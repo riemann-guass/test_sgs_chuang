@@ -1,10 +1,12 @@
-# 服务层接口契约（v1，阶段 1 冻结）
+# 服务层接口契约（v2，双尺度连接重定稿）
 
-Lean 侧与 Python 服务层之间只有这两个端点。契约冻结后，两侧可以独立开发与测试。
+模型代理提供健康检查和三个业务端点：`/conjecture`、`/solve`、`/guide`。
+契约冻结后，生成侧、调用侧与 Lean 验证侧可以独立开发与测试。
 
-> **v1.1（P1.2 追加）**：新增 `POST /solve`（整篇证明生成）。`/guide` **保留不动**——
-> 它是 H2 的对照组（见 `docs/proposal.md`）；`/conjecture` 的字段与语义未变。
-> `POST /solve` 见文末。
+> v2 把引理库快照正式写入 `/solve` 契约，并区分产品提示词与中性测量提示词。
+> `/guide` 保留为 A 组对照；证明真伪仍只由 Lean 侧判定。
+> **迁移状态**：本文件描述目标契约；当前代码尚未完整实现 `snapshot_hash`、
+> `prompt_mode` 与 `sample_salt`，正式实验前必须补齐并加入契约测试。
 
 基址默认 `http://127.0.0.1:8765`，Lean 侧通过 `reap.conjecture_endpoint` / `reap.guide_endpoint` 配置。
 
@@ -18,7 +20,7 @@ Lean 侧与 Python 服务层之间只有这两个端点。契约冻结后，两�
 
 ## `GET /health`
 
-响应：`{"status": "ok", "backend": "<后端名>", "version": "v1"}`
+响应：`{"status": "ok", "backend": "<后端名>", "version": "v2"}`
 
 ## `POST /conjecture`
 
@@ -126,6 +128,10 @@ prior_i = beta * ln(p_i)                 # beta 默认 10
 {
   "statement": "∀ (n : Nat), n + 0 = n",
   "num_samples": 4,
+  "library": [{"name": "sgs_lem_ab12cd34", "stmt": "∀ n : Nat, n + 0 = n"}],
+  "snapshot_hash": "sha256:...",
+  "prompt_mode": "measurement",
+  "sample_salt": "round-2:target-17",
   "request_id": "3f1c…"
 }
 ```
@@ -134,6 +140,10 @@ prior_i = beta * ln(p_i)                 # beta 默认 10
 |---|---|---|---|
 | `statement` | string | 是 | 要证的语句；**闭式**（只引用全局常量，或用 `∀`/`→` 自己引入变量） |
 | `num_samples` | int | 否 | 默认 4，范围 1–8 |
+| `library` | array | 否 | 已物化且在当前 Lean import 中可用的 active 引理；每项只含稳定名与命题 |
+| `snapshot_hash` | string | 有库时是 | 冻结库快照哈希；进入响应与实验报告，防止库版本漂移 |
+| `prompt_mode` | string | 否 | `measurement`（中性陈列）或 `product`（允许建议优先检查）；默认 `measurement` |
+| `sample_salt` | string | 重复采样时是 | 只用于区分独立采样，防止代理缓存把多轮变成同一输出重放 |
 | `request_id` | string | 否 | 追踪用，原样回传 |
 
 响应：
@@ -143,8 +153,9 @@ prior_i = beta * ln(p_i)                 # beta 默认 10
   "proofs": [
     {"index": 0, "proof": "intro n\nrfl", "raw": "<模型原始输出>"}
   ],
-  "meta": {"backend": "mock", "model": "mock-1", "latency_ms": 3, "cache_hit": false,
-           "parsed_proofs": 3}
+  "meta": {"backend": "mock", "model": "mock-1", "latency_ms": 3,
+           "cache_hit": false, "parsed_proofs": 3,
+           "snapshot_hash": "sha256:...", "prompt_mode": "measurement"}
 }
 ```
 
@@ -162,6 +173,20 @@ prior_i = beta * ln(p_i)                 # beta 默认 10
 |---|---|---|
 | `SOLVE_MAX_TOKENS` | 16384 | 单次调用输出预算（thinking 关闭时 16k 绰绰有余） |
 | `SOLVE_TEMPERATURE` | 0.6 | solve 要的是**多样性**（`solve_rate` = k 次采样成功几次），取值由闸门 G1 标定 |
+
+### 测量提示词与产品提示词
+
+`measurement` 模式只说明列出的引理在环境中可用，不得出现“优先引用”“引用更便宜”或
+“更不容易出错”等诱导措辞。它用于 probation 曝光、A/B/C 和有库/无库配对。
+
+`product` 模式允许建议模型先检查相关引理，用于最终产品体验，但其引用率不得回写 reuse，
+也不得替代严格方法指标。
+
+### 库字段的前置条件
+
+调用方发送 `library` 前必须完成：快照哈希校验、`SgsLean.GeneratedLibrary` 编译、
+当前 Lean 会话 import 预检。服务端只负责把已经筛选好的相关 active 引理渲染进提示词，
+不负责检索，也不接受 probation/cold 条目。
 
 **判定码**：由 `SgsLean/Server.lean` 的 `verify` 返回，沿用 `SgsLean.classifyError` 的码表
 （`ok` / `not_a_prop` / `unclosed_goals` / `mvar_or_sorry` / `type_error` / `unknown_identifier` /

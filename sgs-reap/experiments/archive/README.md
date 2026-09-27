@@ -22,5 +22,5 @@
 | `p1_dev_k4_n20.json` · `p1_dev_k4_n20_budget4m.json` | P1 的 D 集数字；`budget4m` 那份是**配置有缺陷**的留档（4M 心跳 + SSL 故障），用于说明"报告必须记判定预算" |
 | `calib_C2_k2_n80.json` | C2 的难度分布（80 题 × k=2） |
 | `rounds_real_3.json` | C 上 3 轮真模型建库 |
-| `g3_c_device_n12_k2.json` | 两臂装置检查（处理臂 14/24 篇引用库引理） |
+| `g3_c_device_n12_k2.json` | 两臂开发期装置检查；14/24 是证明文本命中且包含失败项，不是正式 reuse |
 | `closure_tests.json` | 唯一测试入口的最新一次运行 |
