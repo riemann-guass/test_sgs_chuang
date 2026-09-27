@@ -458,12 +458,16 @@ def test_reuse_persistence(tmp_root: Path) -> None:
     runner.library_path = library_path
     runner.log = lambda *_a, **_k: None
     report = RoundReport(round_index=1, started_at="")
-    cited = {name_a: {"t1", "t2"}, name_b: {"t1"}}
+    cited = {name_a: {"g01", "t2", "t3"}, name_b: {"t1"}}
     runner.update_library(report, cited, prompt_names={name_a})
     rows = {row["name"]: row for row in load_library(library_path)}
     check("复用落盘：reuse 与 reuse_targets 写进库文件（淘汰/检索都靠它）",
-          rows[name_a].get("reuse") == 2 and rows[name_a].get("reuse_targets") == ["t1", "t2"],
+          rows[name_a].get("reuse") == 2 and rows[name_a].get("reuse_targets") == ["t2", "t3"],
           f"{rows[name_a]}")
+    check("复用落盘：来源目标不计 reuse", "g01" not in rows[name_a]["reuse_targets"])
+    check("库三态：达到门槛且曝光后晋升 active，未达标仍为 probation",
+          rows[name_a].get("status") == "active" and rows[name_b].get("status") == "probation",
+          f"{rows[name_a]} / {rows[name_b]}")
     check("复用落盘：cost_tokens 一并写进库（检索层的排序键）",
           int(rows[name_a].get("cost_tokens") or 0) > 0, f"{rows[name_a]}")
     check("复用落盘：进过提示词的引理曝光计数 +1（没进的不加）",
@@ -525,15 +529,21 @@ def test_prompt_blocks() -> None:
 
 def test_import_policy_and_retrieval_order() -> None:
     """import 决策与“相关性先于复用”必须只有一条口径。"""
+    from sgsr.pipeline.library import assert_snapshot_ready, write_snapshot_manifest
+
     tmp = scratch_dir("import_policy")
     empty = tmp / "empty.jsonl"
     empty.write_text("", encoding="utf-8")
     populated = tmp / "library.jsonl"
-    populated.write_text('{"stmt":"True"}\n', encoding="utf-8")
+    populated.write_text('{"stmt":"True","status":"active"}\n', encoding="utf-8")
+    legacy = tmp / "legacy.jsonl"
+    legacy.write_text('{"stmt":"True"}\n', encoding="utf-8")
 
     check("import：空库只导入 Mathlib", resolve_imports(empty) == "Mathlib")
     check("import：非空库自动导入生成库",
           resolve_imports(populated) == "Mathlib,SgsLean.GeneratedLibrary")
+    check("import：旧无状态库按 probation 处理，不进入在线环境",
+          resolve_imports(legacy) == "Mathlib")
     rejected = False
     try:
         resolve_imports(populated, "Mathlib")
@@ -542,6 +552,17 @@ def test_import_policy_and_retrieval_order() -> None:
     check("import：反向对照——非空库却漏生成库会被拒绝", rejected)
     check("import：物化环境剔除生成库自身",
           materialize_imports("Mathlib,SgsLean.GeneratedLibrary") == "Mathlib")
+    generated = tmp / "GeneratedLibrary.lean"
+    generated.write_text("import Mathlib\n", encoding="utf-8")
+    write_snapshot_manifest(populated, generated)
+    assert_snapshot_ready(populated, generated)
+    generated.write_text("import Mathlib\n-- stale\n", encoding="utf-8")
+    stale_rejected = False
+    try:
+        assert_snapshot_ready(populated, generated)
+    except Exception:
+        stale_rejected = True
+    check("快照：反向对照——生成源码变化会让 manifest 校验失败", stale_rejected)
 
     rows = [
         {"name": "sgs_lem_irrelevant", "stmt": "List.reverse xs = xs", "reuse": 100,
@@ -554,6 +575,13 @@ def test_import_policy_and_retrieval_order() -> None:
     check("检索：相关性先于复用密度", names == ["sgs_lem_relevant"], f"{names}")
     check("检索：反向对照——高复用无关引理不得进提示词",
           "sgs_lem_irrelevant" not in names, f"{names}")
+    alpha = retrieve_library(
+        "∀ (a b : Nat), a + b = b + a",
+        [{"name": "add_comm", "stmt": "∀ (x y : Nat), x + y = y + x",
+          "reuse": 1, "cost_tokens": 10}],
+    )
+    check("检索：变量 α 改名时零重叠回退仍保留候选",
+          [p.name for p in alpha] == ["add_comm"], f"{[p.name for p in alpha]}")
 
 
 def test_round_uses_one_main_session() -> None:
@@ -569,6 +597,10 @@ def test_round_uses_one_main_session() -> None:
 
         def __exit__(self, *_):
             events.append("exit")
+
+        def batch(self, jobs):
+            self.batch_count += 1
+            return {"pf": {"result": {"ok": True}}}
 
     fake = FakeServer()
 

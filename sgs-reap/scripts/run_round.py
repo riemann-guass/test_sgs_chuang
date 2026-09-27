@@ -39,7 +39,12 @@ from sgsr.pipeline.runner import (  # noqa: E402
     TargetSet,
     summarize,
 )
-from sgsr.pipeline.library import LibrarySourceError, assert_clean_sources  # noqa: E402
+from sgsr.pipeline.library import (  # noqa: E402
+    LibrarySourceError,
+    active_rows,
+    assert_clean_sources,
+    assert_snapshot_ready,
+)
 from sgsr.lean import (  # noqa: E402
     LeanServer,
     budget_for_jobs,
@@ -121,6 +126,10 @@ def main() -> int:
         return 2
     library_path = Path(args.library)
     generated_path = Path(args.generated)
+    if generated_path.resolve() != DEFAULT_GENERATED.resolve():
+        print("[round] 拒绝：--generated 只能指向 sgslean/SgsLean/GeneratedLibrary.lean；"
+              "Lean import 与 lake build 都绑定这个模块，任意路径不会被实际加载。")
+        return 2
     if args.reset_library and library_path.exists():
         library_path.unlink()
         print(f"[round] 已清空库：{library_path}")
@@ -131,15 +140,19 @@ def main() -> int:
         except LibrarySourceError as exc:
             print(f"[round] {exc}")
             return 2
-    library_nonempty = library_path.exists() and library_path.read_text(encoding="utf-8").strip()
+    active_nonempty = bool(active_rows(library_path))
     try:
         imports = resolve_imports(library_path, args.imports)
     except ValueError as exc:
         print(f"[round] import 配置错误：{exc}")
         return 2
-    if library_nonempty and not generated_path.exists():
-        print(f"[round] 警告：库非空但物化文件不存在（{args.generated}）——"
-              f"先跑 `scripts/run_round.py --materialize-only` 重建它")
+    if active_nonempty and not args.materialize_only:
+        try:
+            assert_snapshot_ready(library_path, generated_path)
+        except (LibrarySourceError, OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"[round] 活动库快照不可用：{exc}")
+            print("        请先运行同一命令并加 --materialize-only。")
+            return 2
     config = RoundConfig(
         solve_endpoint=args.solve_endpoint,
         conjecture_endpoint=args.conjecture_endpoint,

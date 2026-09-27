@@ -1,10 +1,11 @@
 """引理库（P3）：库的物理形态与读写。
 
-v1 用 JSONL 存库，每条：
+当前用 JSONL 存库，每条：
 
     {"stmt": "...", "proof": "...", "verified": true,
      "source": "round0:cand:g01#0", "source_target": "g01", "source_corpus": "C1",
-     "uses": ["Nat.add_comm"], "delta_len": 3, "added_round": 0}
+     "uses": ["Nat.add_comm"], "delta_len": 3, "added_round": 0,
+     "status": "probation"}
 
 设计取舍：
 
@@ -37,6 +38,7 @@ from sgsr.data import normalize_sig
 ALLOWED_SOURCE_CORPORA = {"C", "C1", "C2", "C3"}
 #: 明确禁止的语料标识（开发集 / 测试集）。
 FORBIDDEN_SOURCE_CORPORA = {"D", "T", "dev", "test", "minif2f_valid", "minif2f_test"}
+VALID_STATUSES = {"probation", "active", "cold"}
 
 
 class LibrarySourceError(RuntimeError):
@@ -102,6 +104,7 @@ def add_many(path: str | Path, entries: list[dict]) -> tuple[int, list[dict]]:
             # 名字在**入库这唯一一处**生成：物化、检索、提示词三边都读同一个字段，
             # 谁都不许再按下标猜名字。
             named["name"] = str(entry.get("name") or "").strip() or name_for(stmt)
+            named["status"] = status_of(named)
             handle.write(json.dumps(named, ensure_ascii=False) + "\n")
             written += 1
     return written, rejected
@@ -116,6 +119,72 @@ def load(path: str | Path) -> list[dict]:
         for line in target.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def status_of(row: dict) -> str:
+    """旧条目没有状态时按 probation 处理，绝不默认为 active。"""
+    status = str(row.get("status") or "probation")
+    return status if status in VALID_STATUSES else "probation"
+
+
+def active_rows(path: str | Path) -> list[dict]:
+    """正式在线快照唯一允许读取的条目。"""
+    return [row for row in load(path) if status_of(row) == "active"]
+
+
+def active_hash(path: str | Path) -> str:
+    """活动库内容哈希；与 JSONL 行序和无关诊断字段无关。"""
+    payload = sorted([
+        {"name": row.get("name"), "stmt": row.get("stmt"), "proof": row.get("proof")}
+        for row in active_rows(path)
+    ], key=lambda row: (str(row.get("name") or ""), str(row.get("stmt") or "")))
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def snapshot_manifest_path(path: str | Path) -> Path:
+    target = Path(path)
+    return target.with_name(target.stem + "_snapshot.json")
+
+
+def write_snapshot_manifest(path: str | Path, generated_path: str | Path) -> dict:
+    """发布活动库后写入可审计 manifest。"""
+    generated = Path(generated_path)
+    manifest = {
+        "schema": 1,
+        "library": str(Path(path)),
+        "active_count": len(active_rows(path)),
+        "active_hash": active_hash(path),
+        "generated": str(generated),
+        "generated_hash": (
+            "sha256:" + hashlib.sha256(generated.read_bytes()).hexdigest()[:16]
+            if generated.exists() else "missing"
+        ),
+    }
+    snapshot_manifest_path(path).write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
+def assert_snapshot_ready(path: str | Path, generated_path: str | Path) -> None:
+    """活动库、生成源码和 manifest 必须属于同一快照。"""
+    rows = active_rows(path)
+    if not rows:
+        return
+    manifest_path = snapshot_manifest_path(path)
+    if not manifest_path.exists():
+        raise LibrarySourceError("活动库存在但 snapshot manifest 缺失，请先 --materialize-only")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    generated = Path(generated_path)
+    generated_hash = (
+        "sha256:" + hashlib.sha256(generated.read_bytes()).hexdigest()[:16]
+        if generated.exists() else "missing"
+    )
+    if manifest.get("active_hash") != active_hash(path):
+        raise LibrarySourceError("活动库已变化，snapshot manifest 过期")
+    if manifest.get("generated_hash") != generated_hash:
+        raise LibrarySourceError("GeneratedLibrary.lean 与 snapshot manifest 不一致")
 
 
 def assert_clean_sources(path: str | Path) -> None:

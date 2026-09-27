@@ -1,5 +1,5 @@
 {
-  "passed": 82,
+  "passed": 87,
   "failed": [],
   "checks": [
     {
@@ -275,17 +275,27 @@
     {
       "name": "复用落盘：reuse 与 reuse_targets 写进库文件（淘汰/检索都靠它）",
       "ok": true,
-      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1', 't2'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1}"
+      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t2', 't3'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1, 'status': 'active'}"
+    },
+    {
+      "name": "复用落盘：来源目标不计 reuse",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "库三态：达到门槛且曝光后晋升 active，未达标仍为 probation",
+      "ok": true,
+      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t2', 't3'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1, 'status': 'active'} / {'stmt': '∀ (n : Nat), 0 + n = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_25068dc1', 'source_target': 'g02', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1'], 'reuse': 1, 'cost_tokens': 12, 'exposures': 0, 'status': 'probation'}"
     },
     {
       "name": "复用落盘：cost_tokens 一并写进库（检索层的排序键）",
       "ok": true,
-      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1', 't2'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1}"
+      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t2', 't3'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1, 'status': 'active'}"
     },
     {
       "name": "复用落盘：进过提示词的引理曝光计数 +1（没进的不加）",
       "ok": true,
-      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1', 't2'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1} / {'stmt': '∀ (n : Nat), 0 + n = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_25068dc1', 'source_target': 'g02', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1'], 'reuse': 1, 'cost_tokens': 12, 'exposures': 0}"
+      "detail": "{'stmt': '∀ (n : Nat), n + 0 = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_ac4e57f2', 'source_target': 'g01', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t2', 't3'], 'reuse': 2, 'cost_tokens': 12, 'exposures': 1, 'status': 'active'} / {'stmt': '∀ (n : Nat), 0 + n = n', 'proof': 'intro n\\nrfl', 'verified': True, 'name': 'sgs_lem_25068dc1', 'source_target': 'g02', 'source_corpus': 'C1', 'added_round': 0, 'reuse_targets': ['t1'], 'reuse': 1, 'cost_tokens': 12, 'exposures': 0, 'status': 'probation'}"
     },
     {
       "name": "复用落盘：报告里的复用分布被填上",
@@ -358,12 +368,22 @@
       "detail": ""
     },
     {
+      "name": "import：旧无状态库按 probation 处理，不进入在线环境",
+      "ok": true,
+      "detail": ""
+    },
+    {
       "name": "import：反向对照——非空库却漏生成库会被拒绝",
       "ok": true,
       "detail": ""
     },
     {
       "name": "import：物化环境剔除生成库自身",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "快照：反向对照——生成源码变化会让 manifest 校验失败",
       "ok": true,
       "detail": ""
     },
@@ -376,6 +396,11 @@
       "name": "检索：反向对照——高复用无关引理不得进提示词",
       "ok": true,
       "detail": "['sgs_lem_relevant']"
+    },
+    {
+      "name": "检索：变量 α 改名时零重叠回退仍保留候选",
+      "ok": true,
+      "detail": "['add_comm']"
     },
     {
       "name": "执行引擎：离线一轮只开一个主 Lean 会话",

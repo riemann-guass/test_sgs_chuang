@@ -58,10 +58,10 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sgsr.pipeline.library import name_for  # noqa: E402
+from sgsr.pipeline.library import active_rows, name_for  # noqa: E402
 from sgsr.pipeline.prover import solve_candidates  # noqa: E402
 from sgsr.client import BackendUnavailable  # noqa: E402
-from sgsr.lean import LeanServer, budget_for_jobs, preflight_imports  # noqa: E402
+from sgsr.lean import LeanServer, budget_for_jobs, preflight_in_session  # noqa: E402
 
 DATA = ROOT / "data"
 RESULTS = ROOT / "experiments" / "results"
@@ -78,12 +78,12 @@ def load_library(path: Path) -> list[dict]:
     """
     if not path.exists():
         return []
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = active_rows(path)
     # 名字**读库行里的 `name`**（由 `library.add_many` 按语句内容生成）。
     # 按下标推名字会在"库被淘汰过"之后与 Lean 环境里的常量对不上，
     # 于是提示词给的名字不存在、模型一引用就 unknown identifier——表现成"库没用"。
     return [
-        {"name": str(row.get("name") or name_for(str(row["stmt"]))), "stmt": row["stmt"]}
+        row | {"name": str(row.get("name") or name_for(str(row["stmt"])))}
         for row in rows
     ]
 
@@ -123,7 +123,7 @@ def load_workload(args, limit: int) -> list[dict]:
     return [{"id": tid, "statement": entry["stmt"]} for tid, entry in picked][:limit]
 
 
-def run_arm(targets: list[dict], library: list[dict], args, import_spec: str
+def run_arm(targets: list[dict], library: list[dict], args, import_spec: str, server=None
             ) -> tuple[dict, list[dict]]:
     """跑一个臂：/solve → 验证。返回 `({target_id: {...}}, 端点故障列表)`。"""
     attempts: dict[str, list[str]] = {}
@@ -163,10 +163,15 @@ def run_arm(targets: list[dict], library: list[dict], args, import_spec: str
     ]
     responses: dict[str, dict] = {}
     if jobs:
-        with LeanServer(imports=import_spec, heartbeats=budget_for_jobs(len(jobs)),
-                        stderr_path=RESULTS / "g3_real_stderr.log") as server:
+        if server is None:
+            with LeanServer(imports=import_spec, heartbeats=budget_for_jobs(len(jobs)),
+                            stderr_path=RESULTS / "g3_real_stderr.log") as local_server:
+                responses = local_server.batch(jobs)
+                frontend_ms = local_server.frontend_ms_total
+        else:
             responses = server.batch(jobs)
-            print(f"       [验证] {len(jobs)} 篇（frontend {server.frontend_ms_total}ms）")
+            frontend_ms = server.frontend_ms_total
+        print(f"       [验证] {len(jobs)} 篇（frontend {frontend_ms}ms）")
 
     out: dict[str, dict] = {}
     for target in targets:
@@ -228,34 +233,35 @@ def main() -> int:
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
-    targets = load_workload(args, args.limit)
     library = load_library(Path(args.library))
+    if not library:
+        print("[g3r] 库为空——那两臂就没有差别，先跑 scripts\\run_round.py 把库建起来")
+        return 2
+    targets = load_workload(args, args.limit)
     if not targets:
         print("[g3r] 目标集为空")
         return 1
     print(f"[g3r] 目标 {len(targets)} 条；库 {len(library)} 条；k={args.k}；端点 {args.endpoint}")
-    if not library:
-        print("[g3r] 库为空——那两臂就没有差别，先跑 scripts\\run_round.py 把库建起来")
 
     # 预检：处理臂的 import 必须真的能用。
     # phase22 踩过一次：`lake build SgsLean` 不会编 `SgsLean.GeneratedLibrary`（olea 不存在），
     # 于是处理臂的片段整批崩掉、所有判定为空——却表现为"给库后全部退化"的假结论。
     # 这里用一条最便宜的作业先验证环境，不通就直接退出，不让假数据流进报告。
-    preflight_ok, preflight_detail = preflight_imports(
-        LIBRARY_IMPORTS, stderr_path=RESULTS / "g3_real_stderr.log"
-    )
-    if not preflight_ok:
-        print(f"[g3r] 预检失败：处理臂环境 `import {LIBRARY_IMPORTS}` 不可用。")
-        print(f"       详情：{preflight_detail}")
-        print("       先跑：cd sgslean && lake build SgsLean.GeneratedLibrary")
-        return 1
-    print(f"[g3r] 预检通过（{LIBRARY_IMPORTS} 可用）")
-
     started = time.perf_counter()
     print("[g3r] ==== 基线臂（不给库） ====")
     baseline, baseline_errors = run_arm(targets, [], args, BASE_IMPORTS)
     print("[g3r] ==== 处理臂（给库 + 环境 import 库） ====")
-    treatment, treatment_errors = run_arm(targets, library, args, LIBRARY_IMPORTS)
+    with LeanServer(imports=LIBRARY_IMPORTS, heartbeats=budget_for_jobs(),
+                    stderr_path=RESULTS / "g3_real_stderr.log") as treatment_server:
+        preflight_ok, preflight_detail = preflight_in_session(treatment_server)
+        if not preflight_ok:
+            print(f"[g3r] 预检失败：处理臂环境 `import {LIBRARY_IMPORTS}` 不可用。")
+            print(f"       详情：{preflight_detail}")
+            return 1
+        print(f"[g3r] 预检通过（{LIBRARY_IMPORTS} 可用；复用同一会话）")
+        treatment, treatment_errors = run_arm(
+            targets, library, args, LIBRARY_IMPORTS, server=treatment_server
+        )
     elapsed = time.perf_counter() - started
     backend_errors = len(baseline_errors) + len(treatment_errors)
 

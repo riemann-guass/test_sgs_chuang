@@ -53,13 +53,15 @@ GENERATED_LIBRARY_MODULE = "SgsLean.GeneratedLibrary"
 
 
 def _has_library_rows(path: str | Path | None) -> bool:
-    """库文件是否真的含有条目；空文件不算有库。"""
+    """库文件是否含 active 条目；旧的无状态条目不进入在线环境。"""
     if path is None:
         return False
     target = Path(path)
     try:
-        return bool(target.read_text(encoding="utf-8").strip())
-    except OSError:
+        from sgsr.pipeline.library import active_rows
+
+        return bool(active_rows(target))
+    except (OSError, ValueError, json.JSONDecodeError):
         return False
 
 

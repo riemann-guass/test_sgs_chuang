@@ -54,7 +54,10 @@ sys.path.insert(0, str(ROOT))
 
 from sgsr.pipeline.prover import Budget, Prover  # noqa: E402
 from sgsr.pipeline.prover import git_commit, library_hash, usage_total  # noqa: E402
-from sgsr.lean import preflight_in_session, resolve_imports  # noqa: E402
+from sgsr.lean import preflight_in_session, resolve_imports, SGSLEAN  # noqa: E402
+from sgsr.pipeline.library import (  # noqa: E402
+    LibrarySourceError, active_rows, assert_snapshot_ready,
+)
 
 DATA = ROOT / "data"
 REGISTERED = {
@@ -269,6 +272,11 @@ def main(argv: list[str] | None = None) -> int:
         imports = resolve_imports(library_path, args.imports)
     except ValueError as exc:
         raise SystemExit(f"[eval] import 配置错误：{exc}") from exc
+    if library_path and active_rows(library_path):
+        try:
+            assert_snapshot_ready(library_path, SGSLEAN / "SgsLean" / "GeneratedLibrary.lean")
+        except (LibrarySourceError, OSError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"[eval] 活动库快照不可用：{exc}") from exc
     if args.no_cheap:
         import sgsr.pipeline.prover as prover_module  # noqa: PLC0415
         prover_module.CHEAP_DISABLED = True

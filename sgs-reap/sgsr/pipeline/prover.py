@@ -31,8 +31,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import time
 from dataclasses import dataclass, field
@@ -253,8 +251,9 @@ def library_hash(path: str | Path | None) -> str:
     target = Path(path)
     if not target.exists():
         return "missing"
-    digest = hashlib.sha256(target.read_bytes()).hexdigest()
-    return f"sha256:{digest[:16]}"
+    from sgsr.pipeline.library import active_hash
+
+    return active_hash(target)
 
 
 def git_commit() -> str:
@@ -298,11 +297,9 @@ class Prover:
         self._factory = lean_server_factory or _default_lean_factory
         self.library: list[dict] = []
         if self.library_path is not None and self.library_path.exists():
-            self.library = [
-                json.loads(line)
-                for line in self.library_path.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
+            from sgsr.pipeline.library import active_rows
+
+            self.library = active_rows(self.library_path)
         #: 库版本号：报告里必须带它，否则"给库前后的差"无法回溯到具体哪一版库。
         self.library_hash = library_hash(self.library_path)
 

@@ -118,8 +118,8 @@ def _reuse_density(row: dict) -> float | None:
 def retrieve_library(stmt: str, lib: list[dict], n: int = 8) -> list[Premise]:
     """第一层：从自有库里排序取前 `n` 条。
 
-    先过滤与查询无符号交集的条目，再按 `(符号重叠, 复用密度)` 排序。复用是相关
-    候选之间的预算判据，不是相关性的替代物。没有复用记录的新条目仍可凭相关性进入。
+    先按 `(符号重叠, 复用密度)` 排序。有正重叠候选时过滤零重叠噪声；全池均为零时
+    保留回退集合，避免变量 α 改名或纯运算符命题被硬过滤。复用不是相关性的替代物。
     """
     query = symbols(stmt)
     scored: list[tuple[tuple[float, float], int, dict]] = []
@@ -128,11 +128,13 @@ def retrieve_library(stmt: str, lib: list[dict], n: int = 8) -> list[Premise]:
         if not text:
             continue
         overlap = overlap_score(text, query)
-        if query and overlap <= 0:
-            continue
         density = _reuse_density(row)
         key = (overlap, density if density is not None else -1.0)
         scored.append((key, index, row))
+    # 有正重叠时排除零重叠噪声；若所有条目都是零重叠，则退回全池排序。
+    # 后一种情况覆盖变量 α 改名、纯运算符命题等符号抽取器看不见的相关性。
+    if any(key[0] > 0 for key, _, _ in scored):
+        scored = [item for item in scored if item[0][0] > 0]
     # 同分时按库内顺序（稳定），保证检索可复现
     scored.sort(key=lambda item: (item[0], -item[1]), reverse=True)
     out: list[Premise] = []

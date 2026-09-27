@@ -53,10 +53,13 @@ from sgsr.pipeline.selection import cost_of, evict as coverage_evict
 from sgsr.pipeline.selection import exploration_admission, reuse_table, select_by_reuse
 from sgsr.pipeline.demand import mine as mine_demand
 from sgsr.pipeline.library import (
+    active_rows,
     add_many,
     assert_clean_sources,
     load as load_library,
     name_for,
+    status_of,
+    write_snapshot_manifest,
     write_all as write_library,
 )
 from sgsr.pipeline.selection import retrieve_library, symbols
@@ -596,17 +599,30 @@ class RoundRunner:
         全库重写集中在这一处（`library.write_all`），不与其他写入路径并存。
         """
         library = load_library(self.library_path)
+        active_before = {str(row.get("name")) for row in library if status_of(row) == "active"}
+        promoted = 0
         for row in library:
             name = str(row.get("name") or name_for(str(row.get("stmt", ""))))
             row["name"] = name
+            source_target = str(row.get("source_target") or "")
             seen = set(row.get("reuse_targets") or [])
             seen |= cited.get(name, set())
+            seen.discard(source_target)
             row["reuse_targets"] = sorted(seen)
             row["reuse"] = len(seen)
             row["cost_tokens"] = cost_of(row)
             if name in prompt_names:
                 row["exposures"] = int(row.get("exposures") or 0) + 1
             row.setdefault("exposures", 0)
+            current = status_of(row)
+            if current == "probation" and row["reuse"] >= self.config.reuse_threshold \
+                    and int(row["exposures"]) > 0:
+                row["status"] = "active"
+                promoted += 1
+            elif current == "active" and row["reuse"] < self.config.reuse_threshold:
+                row["status"] = "probation"
+            else:
+                row["status"] = current
         kept, evicted = coverage_evict(library, self.config.round_index,
                                        evict_after=self.config.evict_after)
         if evicted:
@@ -616,12 +632,15 @@ class RoundRunner:
                     handle.write(json.dumps(row, ensure_ascii=False) + "\n")
             report.funnel["library_evicted"] = len(evicted)
         write_library(self.library_path, kept)
+        active_after = {str(row.get("name")) for row in kept if status_of(row) == "active"}
         report.reuse = reuse_table(kept)
+        report.funnel["library_promoted"] = promoted
+        report.funnel["active_snapshot_changed"] = active_before != active_after
         return evicted
 
     # ---- ⑨ 物化 + 入库 ----
     def commit(self, selected: list[dict], report: RoundReport | None = None) -> int:
-        """把选中的候选写进库 → 物化整库 → **编译**（必须点名模块目标）。
+        """把选中的候选写进 probation；发布 active snapshot 由调用方单独完成。
 
         审计的 P0 第 4 条：旧代码只调 `materialize`，既不 `lake build
         SgsLean.GeneratedLibrary`，也不检查返回。后果是下一轮提示词里给了
@@ -643,7 +662,8 @@ class RoundRunner:
                  "added_round": self.config.round_index,
                  # 新引理按构造 reuse=0（还没有目标引用过它），这是**真实的测量值**，
                  # 不是缺省值；它连同曝光计数一起落盘，供保留/淘汰判断。
-                 "reuse": 0, "reuse_targets": [], "exposures": 0}
+                 "reuse": 0, "reuse_targets": [], "exposures": 0,
+                 "status": "probation"}
                 for c in selected
             ],
         )
@@ -655,9 +675,6 @@ class RoundRunner:
                     report.reasons[key] = report.reasons.get(key, 0) + 1
         # 入库后立刻复核来源（第二道防线，见 library.assert_clean_sources）
         assert_clean_sources(self.library_path)
-        if written == 0:
-            return 0
-        self.materialize_library(report)
         return written
 
     def materialize_library(self, report: RoundReport | None = None) -> int:
@@ -675,10 +692,8 @@ class RoundRunner:
              # 淘汰会从库中间删条目，按下标命名会让剩下的引理整体改名。
              "name": str(row.get("name") or name_for(str(row["stmt"]))),
              "source": row.get("source", "library")}
-            for row in load_library(self.library_path)
+            for row in active_rows(self.library_path)
         ]
-        if not full:
-            return 0
         with self.materialize_factory(len(full)) as server:
             response = server.batch([{"id": "mat", "cmd": "materialize",
                                       "path": str(self.generated_path), "entries": full}])
@@ -700,6 +715,7 @@ class RoundRunner:
                 "物化文件编译失败——下一轮的 import 会失败，必须当轮就停下："
                 f"{build.get('tail', '')[:400]}"
             )
+        write_snapshot_manifest(self.library_path, self.generated_path)
         return len(full)
 
     def build_generated_library(self, timeout_s: int = 1800) -> dict:
@@ -744,6 +760,11 @@ class RoundRunner:
         打开新主会话，才能加载刚发布的快照；跨轮复用旧会话会看不到新常量。
         """
         with self.lean_server_factory(1) as server:
+            from sgsr.lean import preflight_in_session
+
+            ok, detail = preflight_in_session(server)
+            if not ok:
+                raise RuntimeError(f"Lean 环境预检失败，未调用模型：{detail}")
             return self._run_round_in(server)
 
     def _run_round_in(self, server) -> RoundReport:
@@ -844,6 +865,8 @@ class RoundRunner:
         report.admission = admission
         # ⑨ 物化 + 入库
         written = self.commit(selected, report)
+        if report.funnel.get("active_snapshot_changed") is True:
+            self.materialize_library(report)
         report.selected = [{"stmt": c["stmt"], "target": c["target"],
                             "proof_steps": c.get("proof_steps")} for c in selected]
         library_after = load_library(self.library_path)
