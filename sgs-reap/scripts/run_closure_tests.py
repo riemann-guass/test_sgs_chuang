@@ -711,19 +711,24 @@ def test_lean_session_reuse() -> None:
             third = server.batch([{"id": "s3", "cmd": "verify",
                                    "stmt": "∀ (n : Nat), n + 0 = n",
                                    "proof": "intro n\nrfl"}])
-        check("常驻会话：同一进程连发 3 批都拿到响应",
-              bool(first.get("s1")) and bool(second.get("s2")) and bool(third.get("s3")),
-              f"{first} / {second} / {third}")
-        check("常驻会话：批号递增到 3（不是每批新起进程）",
-              server.batch_count == 3, f"batch_count={server.batch_count}")
+            fourth = server.batch([{"id": "s4", "cmd": "trivial", "stmt": "1 = 1"}])
+        check("常驻会话：同一进程连发 4 批都拿到响应",
+              bool(first.get("s1")) and bool(second.get("s2")) and bool(third.get("s3"))
+              and bool(fourth.get("s4")), f"{first} / {second} / {third} / {fourth}")
+        check("常驻会话：批号递增到 4（不是每批新起进程）",
+              server.batch_count == 4, f"batch_count={server.batch_count}")
         check("常驻会话：第二批的 `importedModules` 与首批一致（没有重新导入）",
               (first["s1"].get("result") or {}).get("importedModules")
               == (second["s2"].get("result") or {}).get("importedModules"),
               f"{first['s1'].get('result')} vs {second['s2'].get('result')}")
         check("常驻会话：第三批的内核判定仍然判对",
               (third["s3"].get("result") or {}).get("ok") is True, f"{third['s3']}")
+        trivial = (fourth["s4"].get("result") or {})
+        check("非平凡门：反向对照——`1 = 1` 必须被 rfl 拦下",
+              trivial.get("trivial") is True and trivial.get("byTactic") == "rfl",
+              f"{trivial}")
     except Exception as exc:  # noqa: BLE001 - 任何异常都算这条失败
-        check("常驻会话：三批共用同一个 Lean 进程", False, f"{type(exc).__name__}: {exc}")
+        check("常驻会话：四批共用同一个 Lean 进程", False, f"{type(exc).__name__}: {exc}")
 
 
 def test_materialize_round_trip() -> None:

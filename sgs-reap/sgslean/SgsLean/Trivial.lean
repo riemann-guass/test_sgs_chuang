@@ -1,10 +1,11 @@
 /-
 # 硬门第一件：非平凡性
 
-`Trivial.isTrivial` 判定"这条语句能不能被 `decide` / `simp` / `aesop` 在预算内**秒杀**"。
+`Trivial.isTrivial` 判定"这条语句能不能被 `rfl` / `decide` / `simp` / `aesop`
+在预算内**秒杀**"。
 硬门里它是替代 SGS rubric 那句"如果平凡就给低分"的形式化版本——**Lean 直接判，不需要 LLM 猜**。
 
-实现方式与 `Gate` / `Verify` 同源：造一个孤立义务目标 `⊢ <stmt>`，依次试三条 tactic，
+实现方式与 `Gate` / `Verify` 同源：造一个孤立义务目标 `⊢ <stmt>`，依次试四条 tactic，
 任一条在预算内把子目标清零即判平凡；三条都不行判非平凡。每条 tactic 都在
 `withoutModifyingState` 里跑，互不污染。
 
@@ -87,7 +88,7 @@ def nowNanos {m : Type → Type} [Monad m] [MonadLiftT IO m] : m Nat :=
   liftM (m := IO) IO.monoNanosNow
 
 /-- 依次尝试的 tactic（顺序 = 从便宜到贵）。 -/
-def probes : Array String := #["decide", "simp", "aesop"]
+def probes : Array String := #["rfl", "decide", "simp", "aesop"]
 
 /-- 在孤立义务目标上、用指定心跳预算跑一条 tactic，返回它是否把子目标清零。 -/
 private def closesGoalWithBudget (ty : Expr) (tactic : String) (budget : Nat) : TacticM Bool := do

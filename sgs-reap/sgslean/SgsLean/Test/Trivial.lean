@@ -2,11 +2,11 @@
 # 非平凡性 `Trivial.isTrivial` 的离线测试
 
 期望值**按真实输出标定**（见 `docs/phase10-log.md` 的标定记录），不是凭印象写死的：
-在 Mathlib 模式下 8 条探针里，`True` 被 `decide` 秒掉，`∀ (n : Nat), n + 0 = n` 被 `simp` 秒掉，
-而 `1 = 1` 与 `∀ (a b : Nat), a + b = b + a` **没有被任何一条秒掉**（反直觉，但实测如此）。
+非平凡门必须先挡住 `rfl` 可直接闭合的定义等式；历史实现漏了这条探针，
+使 `1 = 1` 一类命题能进入库。当前固定顺序为 `rfl` / `decide` / `simp` / `aesop`。
 
 本文件按 lake 的构建环境（**无 Mathlib**）运行，所以只断言跨模式稳健的部分；
-Mathlib 模式下 8 条探针的完整输出见 `docs/phase10-log.md` 的标定记录。
+Mathlib 模式的历史标定记录见 `docs/phase10-log.md`。
 -/
 import SgsLean
 import SgsLean.Syntax
@@ -26,19 +26,22 @@ def expectTrivial (stmt : String) : TacticM Unit := do
   if r.byTactic.isEmpty then
     throwError "「{stmt}」判了平凡却没记录是哪条 tactic"
 
-/-- 断言：判定为**非**平凡，且三条探针都跑过（结构断言，跨模式稳健）。 -/
+/-- 断言：判定为**非**平凡，且四条探针都跑过（结构断言，跨模式稳健）。 -/
 def expectNonTrivial (stmt : String) : TacticM Unit := do
   let r ← Trivial.isTrivial stmt
   if r.trivial then
     throwError "「{stmt}」应判非平凡，实际被 {r.byTactic} 秒掉"
-  unless r.tried.size == 3 do
-    throwError "「{stmt}」应记录 3 条探针，实际 {r.tried.size}：{r.tried}"
+  unless r.tried.size == 4 do
+    throwError "「{stmt}」应记录 4 条探针，实际 {r.tried.size}：{r.tried}"
   unless r.stmt == SgsLean.normalizeStmt stmt do
     throwError "「{stmt}」的 stmt 字段不是归一化文本：{r.stmt}"
 
-/-- 正例：`True` 与"定义上成立"的加零被秒掉。 -/
+/-- 正例：自反性等式必须由 rfl 第一时间拦下。 -/
 example : True := by
   run_tac do
+    let reflexive ← Trivial.isTrivial "1 = 1"
+    unless reflexive.trivial && reflexive.byTactic == "rfl" do
+      throwError "`1 = 1` 应被 rfl 拦下，trivial={reflexive.trivial}, byTactic={reflexive.byTactic}, tried={reflexive.tried}"
     expectTrivial "True"
     expectTrivial "∀ (n : Nat), n + 0 = n"
   trivial

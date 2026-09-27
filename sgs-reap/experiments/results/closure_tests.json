@@ -1,5 +1,5 @@
 {
-  "passed": 90,
+  "passed": 95,
   "failed": [],
   "checks": [
     {
@@ -451,6 +451,31 @@
       "name": "分档落盘：按 tier 分文件写出，且带上 tier 字段",
       "ok": true,
       "detail": "{'hard': 1, 'nearmiss': 1} / ['{\"id\": \"a\", \"statement\": \"P1\", \"tier\": \"nearmiss\"}']"
+    },
+    {
+      "name": "常驻会话：同一进程连发 4 批都拿到响应",
+      "ok": true,
+      "detail": "{'s1': {'id': 's1', 'ok': True, 'result': {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}}} / {'s2': {'id': 's2', 'ok': True, 'result': {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}}} / {'s3': {'id': 's3', 'ok': True, 'result': {'detail': '', 'finalChecked': True, 'gateOk': True, 'goalsLeft': 0, 'ok': True, 'reason': 'ok', 'stmt': '∀ (n : Nat), n + 0 = n'}}} / {'s4': {'id': 's4', 'ok': True, 'result': {'byTactic': 'rfl', 'detail': '', 'stmt': '1 = 1', 'tried': [['rfl', True]], 'trivial': True}}}"
+    },
+    {
+      "name": "常驻会话：批号递增到 4（不是每批新起进程）",
+      "ok": true,
+      "detail": "batch_count=4"
+    },
+    {
+      "name": "常驻会话：第二批的 `importedModules` 与首批一致（没有重新导入）",
+      "ok": true,
+      "detail": "{'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'} vs {'cheapBatches': [5, 7, 1], 'heartbeats': 4000000, 'importedModules': 2078, 'mathlib': False, 'status': 'ok', 'tacticTimeoutMs': 200000, 'trivialHeartbeats': 200000, 'version': 'v1.2'}"
+    },
+    {
+      "name": "常驻会话：第三批的内核判定仍然判对",
+      "ok": true,
+      "detail": "{'id': 's3', 'ok': True, 'result': {'detail': '', 'finalChecked': True, 'gateOk': True, 'goalsLeft': 0, 'ok': True, 'reason': 'ok', 'stmt': '∀ (n : Nat), n + 0 = n'}}"
+    },
+    {
+      "name": "非平凡门：反向对照——`1 = 1` 必须被 rfl 拦下",
+      "ok": true,
+      "detail": "{'byTactic': 'rfl', 'detail': '', 'stmt': '1 = 1', 'tried': [['rfl', True]], 'trivial': True}"
     }
   ]
 }
