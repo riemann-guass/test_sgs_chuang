@@ -1,0 +1,85 @@
+{
+  "schema": 2,
+  "protocol": "miniF2F-valid->C-build/C-measure/D; miniF2F-test->T",
+  "algorithm": "sort-by-sha256(seed\\0id\\0normalized_statement), then exact 50/25/25 slices",
+  "seed": "sg-lean-minif2f-v1",
+  "ratios": {
+    "C-build": "50%",
+    "C-measure": "25%",
+    "D": "25%"
+  },
+  "source": {
+    "valid": {
+      "path": "data/minif2f_valid.jsonl",
+      "rows": 244,
+      "sha256": "sha256:77ee7f562342b327"
+    },
+    "test": {
+      "path": "data/minif2f_test.jsonl",
+      "rows": 244,
+      "sha256": "sha256:8a9755acdd749823"
+    }
+  },
+  "partitions": {
+    "C-build": {
+      "path": "data/minif2f_c_build.jsonl",
+      "rows": 122,
+      "families": {
+        "aime": 7,
+        "aimeII": 1,
+        "algebra": 12,
+        "amc12": 4,
+        "amc12a": 9,
+        "amc12b": 6,
+        "imo": 11,
+        "induction": 3,
+        "mathd": 65,
+        "numbertheory": 4
+      },
+      "sha256": "sha256:d6869419c5177920"
+    },
+    "C-measure": {
+      "path": "data/minif2f_c_measure.jsonl",
+      "rows": 61,
+      "families": {
+        "aime": 2,
+        "aimeII": 1,
+        "algebra": 4,
+        "amc12": 1,
+        "amc12a": 8,
+        "amc12b": 2,
+        "imo": 6,
+        "induction": 3,
+        "mathd": 31,
+        "numbertheory": 3
+      },
+      "sha256": "sha256:6b079fd3926f56d8"
+    },
+    "D": {
+      "path": "data/minif2f_dev.jsonl",
+      "rows": 61,
+      "families": {
+        "aime": 3,
+        "aimeI": 1,
+        "algebra": 2,
+        "amc12a": 14,
+        "amc12b": 1,
+        "imo": 3,
+        "induction": 2,
+        "mathd": 34,
+        "numbertheory": 1
+      },
+      "sha256": "sha256:37b1c946297ea387"
+    },
+    "T": {
+      "path": "data/minif2f_test.jsonl",
+      "rows": 244
+    }
+  },
+  "checks": {
+    "valid_partition_id_overlap": 0,
+    "valid_test_id_overlap": 0,
+    "valid_test_statement_overlap": 0,
+    "valid_coverage": 244
+  }
+}

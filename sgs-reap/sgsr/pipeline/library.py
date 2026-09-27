@@ -3,7 +3,7 @@
 当前用 JSONL 存库，每条：
 
     {"stmt": "...", "proof": "...", "verified": true,
-     "source": "round0:cand:g01#0", "source_target": "g01", "source_corpus": "C1",
+     "source": "round0:cand:g01#0", "source_target": "g01", "source_corpus": "MF_VALID_C",
      "uses": ["Nat.add_comm"], "delta_len": 3, "added_round": 0,
      "status": "probation"}
 
@@ -34,10 +34,12 @@ from pathlib import Path
 
 from sgsr.data import normalize_sig
 
-#: 允许进库的语料标识：C 类（课程集）。`C1/C2/C3` 是 `docs/data-protocol.md` 里的三个来源。
-ALLOWED_SOURCE_CORPORA = {"C", "C1", "C2", "C3"}
+#: 当前正式来源是 miniF2F valid 的 C 分区；C1/C2/C3 仅供旧库迁移读取。
+ALLOWED_SOURCE_CORPORA = {"C", "C1", "C2", "C3", "MF_VALID_C"}
 #: 明确禁止的语料标识（开发集 / 测试集）。
-FORBIDDEN_SOURCE_CORPORA = {"D", "T", "dev", "test", "minif2f_valid", "minif2f_test"}
+FORBIDDEN_SOURCE_CORPORA = {
+    "D", "T", "dev", "test", "minif2f_valid", "minif2f_test", "MF_VALID_D"
+}
 VALID_STATUSES = {"probation", "active", "cold"}
 
 

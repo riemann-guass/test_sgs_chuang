@@ -232,7 +232,7 @@ cold & 曝光充分仍无复用证据，或从 active 淘汰 & 不可见，保�
 
 \subsection{C 的内部划分}
 
-C 在保持与 D/T 隔离的前提下，按稳定哈希确定性划分：
+miniF2F valid 按稳定哈希排序确定性划分为 C-build、C-measure 和 D：
 
 \begin{itemize}[leftmargin=1.8em,itemsep=3pt]
   \item \textbf{C-build}：基线求解、需求挖掘、候选生成和候选证明；
@@ -240,7 +240,8 @@ C 在保持与 D/T 隔离的前提下，按稳定哈希确定性划分：
   \item 候选的 \code{source\_target} 无论属于哪一块，都不得为自身贡献 reuse。
 \end{itemize}
 
-划分清单属于派生数据，不入库；manifest 必须记录划分算法、种子、指纹和规模。
+三个分区精确为 122/61/61，完整覆盖 valid 且两两不相交。分区文件与 manifest
+一同入库；manifest 必须记录划分算法、种子、指纹和规模。
 
 \subsection{一轮闭环}
 
@@ -325,8 +326,9 @@ BUILD_ROUND(C_build, C_measure, snapshot, config):
 \toprule
 \textbf{数据} & \textbf{用途} & \textbf{禁止} \\
 \midrule
-C & 建库；内部拆分 C-build / C-measure & 与 D/T 同源 \\
-D & miniF2F valid；调参、debug、难度和预算选择 & 入库、需求挖掘、候选来源 \\
+C-build & miniF2F valid 的 122 题；需求和候选 & 晋升测量 \\
+C-measure & miniF2F valid 的 61 题；曝光和 reuse & 需求挖掘、候选来源 \\
+D & miniF2F valid 的 61 题；调参、debug、难度和预算选择 & 入库、需求挖掘、候选来源 \\
 T & miniF2F test；冻结后一次性最终评测 & 任何调参、建库或试跑 \\
 \bottomrule
 \end{tabularx}
@@ -335,8 +337,9 @@ T & miniF2F test；冻结后一次性最终评测 & 任何调参、建库或试�
 判断泄漏以来源为准，不以文本相似度为准。库条目必须带 \code{source\_target} 与
 \code{source\_corpus}。评测时在线产生的临时内容不得回写全局库。
 
-当前 C=195（C1 63、C2 132），与 D/T 命题级重叠为 0。但现有 C2 抽样在 80 题标定中
-只有 5 条 near-miss，正式重建前必须按题面形态重选，并在 D 上冻结难度和预算规则。
+项目的唯一题目来源为 miniF2F。valid 244 题按固定种子
+code{sg-lean-minif2f-v1} 和归一化命题哈希切分；test 244 题原样作为 T，
+在框架、库快照和统计方案完全冻结前不运行。
 
 %======================================================================
 \section{实验设计}
@@ -414,7 +417,7 @@ A/B 必须使用同一候选池，只改变选择判据；B/C 保持选择、预
 \subsection{可继续使用的基础}
 
 Gate、内核终检、证明项依赖抽取、物化编译、常驻 Lean 服务、数据角色守卫和逐题落盘
-已经具备。纯 Python 自检当前为 72 条断言。
+已经具备。纯 Python 自检当前为 95 条断言。
 
 \subsection{旧资产的正确定位}
 
@@ -437,7 +440,7 @@ Gate、内核终检、证明项依赖抽取、物化编译、常驻 Lean 服务�
   \item 修复非平凡硬门并加入 \code{rfl} 反例；
   \item 改为相关性先召回、reuse/cost 后排序；
   \item 分开产品提示词与中性测量提示词；
-  \item 重选 C2、重建库、再跑 D 装置检查。
+  \item 在 miniF2F C-build/C-measure 上重建库，再跑 D 装置检查。
 \end{enumerate}
 
 迁移完成前不运行正式 P3，不运行 T。
@@ -453,7 +456,7 @@ Gate、内核终检、证明项依赖抽取、物化编译、常驻 Lean 服务�
 
 \subsection{P1：语料与正式建库}
 
-交付：按题面形态重选 C2；稳定划分 C-build/C-measure；在 C 上重建 A/B/C 三个库。
+交付：冻结 miniF2F valid 的 C-build/C-measure/D 分区；在 C 上重建 A/B/C 三个库。
 闸门：每个 active 条目均有可追踪的非来源目标引用证据和曝光记录；快照可物化、编译、预检。
 
 \subsection{P2：开发集冻结}
@@ -483,8 +486,8 @@ Gate、内核终检、证明项依赖抽取、物化编译、常驻 Lean 服务�
   "stmt": "...",
   "proof": "...",
   "verified": true,
-  "source_corpus": "C2",
-  "source_target": "C2:...",
+  "source_corpus": "MF_VALID_C",
+  "source_target": "aime_...",
   "status": "probation|active|cold",
   "reuse": 3,
   "reuse_targets": ["..."],

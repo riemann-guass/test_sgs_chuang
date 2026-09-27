@@ -167,15 +167,15 @@ def test_library_source_guard() -> None:
         path = tmp / "library.jsonl"
         written, rejected = add_many(path, [
             {"stmt": "P1", "proof": "p", "verified": True,
-             "source_target": "g01", "source_corpus": "C1"},
+             "source_target": "g01", "source_corpus": "MF_VALID_C"},
             {"stmt": "P2", "proof": "p", "verified": True,
-             "source_target": "g02", "source_corpus": "D"},          # D 来源
+             "source_target": "g02", "source_corpus": "MF_VALID_D"},  # D 来源
             {"stmt": "P3", "proof": "p", "verified": True,
              "source_target": "g03"},                                 # 缺 corpus
             {"stmt": "P4", "proof": "p", "verified": True,
-             "source_corpus": "C1"},                                   # 缺 target
+             "source_corpus": "MF_VALID_C"},                            # 缺 target
             {"stmt": "P5", "proof": "p", "verified": False,
-             "source_target": "g05", "source_corpus": "C1"},           # 未验证
+             "source_target": "g05", "source_corpus": "MF_VALID_C"},  # 未验证
         ])
         check("库守卫：只写入来源合法且验证过的那条", written == 1, f"实际写入 {written}")
         check("库守卫：4 条被拒且给出原因", len(rejected) == 4, f"{rejected}")
@@ -199,9 +199,9 @@ def test_library_source_guard() -> None:
 def test_role_guard() -> None:
     """D/T 文件**改名也进不了**建库流程（审计 P0 第 5 条）。"""
     tmp = scratch_dir("role_guard")
-    registered = ROOT / "data" / "minif2f_valid.jsonl"
+    registered = ROOT / "data" / "minif2f_dev.jsonl"
     if not registered.exists():
-        check("角色守卫：需要 data/minif2f_valid.jsonl 存在", False, f"缺少 {registered}")
+        check("角色守卫：需要 data/minif2f_dev.jsonl 存在", False, f"缺少 {registered}")
         return
 
     # ① 直接指向注册路径：必须拒
@@ -240,6 +240,46 @@ def test_role_guard() -> None:
     except DataRoleError:
         role_blocked = True
     check("角色守卫：role=dev 被拒", role_blocked)
+
+
+def test_minif2f_partitions() -> None:
+    """miniF2F valid 必须被完整、互斥地拆成 C-build/C-measure/D。"""
+    paths = {
+        "C-build": ROOT / "data" / "minif2f_c_build.jsonl",
+        "C-measure": ROOT / "data" / "minif2f_c_measure.jsonl",
+        "D": ROOT / "data" / "minif2f_dev.jsonl",
+    }
+    valid_rows = [json.loads(line) for line in (ROOT / "data" / "minif2f_valid.jsonl")
+                  .read_text(encoding="utf-8").splitlines() if line.strip()]
+    parts = {
+        role: [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+               if line.strip()]
+        for role, path in paths.items()
+    }
+    ids = {role: {row["id"] for row in rows} for role, rows in parts.items()}
+    check("miniF2F 划分：固定规模为 C-build=122/C-measure=61/D=61",
+          {role: len(rows) for role, rows in parts.items()}
+          == {"C-build": 122, "C-measure": 61, "D": 61})
+    check("miniF2F 划分：三个 valid 分区目标身份两两不相交",
+          not (ids["C-build"] & ids["C-measure"])
+          and not (ids["C-build"] & ids["D"])
+          and not (ids["C-measure"] & ids["D"]))
+    check("miniF2F 划分：三个分区完整覆盖 valid",
+          set().union(*ids.values()) == {row["id"] for row in valid_rows})
+    check("miniF2F 划分：只有 C 分区标记为允许入库的 MF_VALID_C",
+          all(row["source_corpus"] == "MF_VALID_C"
+              for role in ("C-build", "C-measure") for row in parts[role])
+          and all(row["source_corpus"] == "MF_VALID_D" for row in parts["D"]))
+    swapped_rejected = False
+    try:
+        assert_disjoint_curriculum(
+            TargetSet(ROLE_C_BUILD, paths["C-measure"], parts["C-measure"]),
+            TargetSet(ROLE_C_MEASURE, paths["C-build"], parts["C-build"]),
+        )
+    except DataRoleError:
+        swapped_rejected = True
+    check("miniF2F 划分：反向对照——C-build/C-measure 文件互换必须拒绝",
+          swapped_rejected)
 
 
 def test_lean_file_parsing() -> None:
@@ -793,6 +833,7 @@ def main() -> int:
     test_verify_field_names()
     test_library_source_guard()
     test_role_guard()
+    test_minif2f_partitions()
     test_lean_file_parsing()
     test_selection_and_eviction()
     test_admission_and_bootstrap()

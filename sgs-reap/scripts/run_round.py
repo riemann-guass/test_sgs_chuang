@@ -10,8 +10,8 @@
 
 **数据角色（`docs/data-protocol.md`，这里用代码强制）**：
 
-* `--curriculum`：建库课程集 C，默认按固定种子和内容哈希派生 C-build/C-measure；
-* `--c-build` + `--c-measure`：也可显式提供两个独立输入，任何身份或命题交叉都拒绝；
+* 默认显式读取 miniF2F valid 派生的 C-build/C-measure；
+* 自定义数据也必须分别通过 `--c-build` 和 `--c-measure` 提供；
 * `--dev`：调参用（miniF2F **valid**）。本脚本**不读它**——调参在
   `scripts/run_gate_g3_real.py --select ...` 里做。
 * `--test`：最终评测（miniF2F **test**）。**本脚本拒绝接受 miniF2F 作为 curriculum**：
@@ -32,7 +32,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sgsr.pipeline.runner import (  # noqa: E402
-    ROLE_CURRICULUM,
     ROLE_C_BUILD,
     ROLE_C_MEASURE,
     DataRoleError,
@@ -40,7 +39,6 @@ from sgsr.pipeline.runner import (  # noqa: E402
     RoundRunner,
     TargetSet,
     assert_disjoint_curriculum,
-    split_curriculum,
     summarize,
 )
 from sgsr.pipeline.library import (  # noqa: E402
@@ -78,14 +76,10 @@ def make_factory(imports: str):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="SG-Lean 闭环（多轮）")
-    parser.add_argument("--curriculum", default=str(DATA / "C.jsonl"),
-                        help="课程集 C；未显式给 --c-build/--c-measure 时确定性划分")
-    parser.add_argument("--c-build", default=None, help="显式 C-build JSONL（必须与 --c-measure 同时给）")
-    parser.add_argument("--c-measure", default=None, help="显式 C-measure JSONL（必须与 --c-build 同时给）")
-    parser.add_argument("--split-seed", default="sg-lean-c-split-v1",
-                        help="自动划分 C 的固定种子")
-    parser.add_argument("--build-percent", type=int, default=60,
-                        help="自动划分时 C-build 的哈希桶百分比")
+    parser.add_argument("--c-build", default=str(DATA / "minif2f_c_build.jsonl"),
+                        help="C-build JSONL")
+    parser.add_argument("--c-measure", default=str(DATA / "minif2f_c_measure.jsonl"),
+                        help="C-measure JSONL")
     parser.add_argument("--rounds", type=int, default=2)
     parser.add_argument("--target-limit", type=int, default=0,
                         help="本轮用多少条 C-build 目标（0=全部）")
@@ -104,8 +98,8 @@ def main() -> int:
                         help="探索额度：一轮最多让多少条没有复用证据的新引理入库")
     parser.add_argument("--prompt-slots", type=int, default=16,
                         help="提示词里最多放几条引理（与 proxy 的截断上限一致）")
-    parser.add_argument("--source-corpus", default="C1",
-                        help="本库的来源语料标识（C/C1/C2/C3；写进每条引理供事后审计）")
+    parser.add_argument("--source-corpus", default="MF_VALID_C",
+                        help="本库的来源语料标识（正式流程固定 MF_VALID_C）")
     parser.add_argument("--library", default=str(DEFAULT_LIBRARY))
     parser.add_argument("--generated", default=str(DEFAULT_GENERATED))
     parser.add_argument("--solve-endpoint", default="http://127.0.0.1:8765/solve")
@@ -120,40 +114,20 @@ def main() -> int:
                         help="显式声明用的是假服务（仅用于离线冒烟，会写进报告文件名）")
     args = parser.parse_args()
 
-    curriculum_path = Path(args.curriculum)
-    # ── 数据角色守卫：不许拿测试集/开发集建库 ──
-    # 两道：① 先按文件名快速拒绝（给出可读的报错）；
-    #        ② 再让 `assert_buildable()` 按**解析后的绝对路径**复核，
-    #           这样把 D/T 复制改名也绕不过去（审计 P0 第 5 条）。
-    if "minif2f" in curriculum_path.name.lower():
-        print(f"[round] 拒绝：`{curriculum_path.name}` 是 miniF2F（开发/测试集）。")
-        print("        按 docs/data-protocol.md，建库只能用课程集 C；")
-        print("        miniF2F valid 用于调参（scripts/run_gate_g3_real.py --select），test 只用于最终评测。")
-        return 2
-
     try:
-        if bool(args.c_build) != bool(args.c_measure):
-            raise DataRoleError("--c-build 与 --c-measure 必须同时提供")
-        if args.c_build and args.c_measure:
-            c_build = TargetSet.load(ROLE_C_BUILD, Path(args.c_build))
-            c_measure = TargetSet.load(ROLE_C_MEASURE, Path(args.c_measure))
-            assert_disjoint_curriculum(c_build, c_measure)
-            split_manifest = {
-                "schema": 1,
-                "algorithm": "explicit-independent-inputs",
-                "seed": None,
-                "c_build": {"path": str(c_build.path), "rows": len(c_build.rows),
-                            "hash": c_build.content_hash()},
-                "c_measure": {"path": str(c_measure.path), "rows": len(c_measure.rows),
-                              "hash": c_measure.content_hash()},
-                "identity_overlap": 0,
-                "statement_overlap": 0,
-            }
-        else:
-            curriculum = TargetSet.load(ROLE_CURRICULUM, curriculum_path)
-            c_build, c_measure, split_manifest = split_curriculum(
-                curriculum, seed=args.split_seed, build_percent=args.build_percent
-            )
+        c_build = TargetSet.load(ROLE_C_BUILD, Path(args.c_build))
+        c_measure = TargetSet.load(ROLE_C_MEASURE, Path(args.c_measure))
+        assert_disjoint_curriculum(c_build, c_measure)
+        split_manifest = {
+            "schema": 1,
+            "algorithm": "explicit-independent-inputs",
+            "c_build": {"path": str(c_build.path), "rows": len(c_build.rows),
+                        "hash": c_build.content_hash()},
+            "c_measure": {"path": str(c_measure.path), "rows": len(c_measure.rows),
+                          "hash": c_measure.content_hash()},
+            "identity_overlap": 0,
+            "statement_overlap": 0,
+        }
     except DataRoleError as exc:
         print(f"[round] 数据角色错误：{exc}")
         return 2
@@ -236,7 +210,8 @@ def main() -> int:
         print(f"[round] 数据角色错误：{exc}")
         return 2
     summary = summarize(reports)
-    summary["curriculum"] = str(curriculum_path)
+    summary["c_build"] = str(c_build.path)
+    summary["c_measure"] = str(c_measure.path)
     summary["data_split"] = split_manifest
     summary["total_s"] = round(time.perf_counter() - started, 1)
     summary["library_after"] = reports[-1].library_after if reports else []

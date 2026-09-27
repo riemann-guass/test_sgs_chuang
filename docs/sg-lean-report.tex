@@ -167,10 +167,11 @@ A/B 共用候选池，仅改变选择；B/C 保持选择和预算不变，仅改
 
 \section{数据纪律}
 
-C 只用于建库；D（miniF2F valid）只用于调参和装置检查；T（miniF2F test）只在全部冻结后运行一次。
-库条目必须记录来源，D/T 来源的候选无条件拒收。当前 C=195，与 D/T 命题级重叠为 0。
-
-现有 C2 抽样在 80 题中只有 5 条 near-miss，正式实验前需要按题面形态重选，让工作负载具有足够分辨率。
+miniF2F valid 的 244 题按固定种子和命题哈希确定性拆成 C-build 122 题、
+C-measure 61 题和 D 61 题；miniF2F test 的 244 题整体作为 T，只在全部冻结后运行一次。
+C-build 负责候选来源，C-measure 负责跨目标曝光与晋升，D 只用于调参和装置检查。
+库条目必须记录来源，只有 code{MF\_VALID\_C} 可入库；D/T 来源的候选无条件拒收。
+三个 valid 分区互斥且恰好覆盖源 valid，T 与 valid 的题目编号和规范化命题重叠均为 0。
 
 \section{外部评审发现的问题}
 
@@ -187,7 +188,7 @@ C 只用于建库；D（miniF2F valid）只用于调参和装置检查；T（min
 \section{当前状态与下一步}
 
 可继续使用的工程基础包括 Gate、Verify、Trace.constants、Materialize、常驻 Lean 服务、
-数据角色守卫和逐题落盘。纯 Python 自检当前为 72 条断言。
+数据角色守卫和逐题落盘。纯 Python 自检当前为 95 条断言。
 
 当前 35 条库降级为开发期资产；P1 仍只有 9 题部分报告。在下列工作完成前，不运行正式 P3 或 T：
 
@@ -197,7 +198,7 @@ C 只用于建库；D（miniF2F valid）只用于调参和装置检查；T（min
   \item 实现 probation/active/cold 与冻结快照；
   \item 修复非平凡门并重建正式库；
   \item 分离产品提示词和中性测量提示词；
-  \item 重选 C2，在 D 上冻结参数后再跑 A/B/C。
+  \item 用新的 C-build/C-measure 重建正式库，在 D 上冻结参数后再跑 A/B/C。
 \end{enumerate}
 
 \section{预期贡献}

@@ -1,82 +1,63 @@
-# 数据划分与实验协议
+# miniF2F 数据协议
 
-> 本文件约束“哪些数据可以影响库和配置”。违反本协议的结果不得作为项目结论。
+> 本文件是当前数据角色的权威定义。2026-09-27 起，项目只使用 miniF2F 作为
+> 题目来源；旧 C1/C2/Mathlib 课程集只是历史材料。
 
-## 一、C / D / T 三种角色
+## 一、四个互斥角色
 
-| 数据 | 角色 | 允许 | 绝对禁止 |
-|---|---|---|---|
-| **C 课程集** | 建库 | 需求、候选、硬门、试用、晋升 | 与 D/T 同源 |
-| **D 开发集** | 调参和装置检查 | 难度、k、预算、debug、消融 | 入库、需求挖掘、候选来源 |
-| **T 测试集** | 一次性最终评测 | 冻结后运行 | 调参、建库、需求、“看看效果” |
+miniF2F valid 的 244 题按固定种子 `sg-lean-minif2f-v1` 和
+`sha256(seed, id, normalized_statement)` 排序后精确切分：
 
-判断污染以**来源**为准，不以文本相似度为准。只要候选是由 D/T 目标或其子目标产生，
-就不能进入 probation、active 或 cold 库记录。
+| 角色 | 文件 | 规模 | 允许 | 禁止 |
+|---|---|---:|---|---|
+| C-build | `data/minif2f_c_build.jsonl` | 122 | 基线轨迹、需求挖掘、候选生成和证明 | 为自己贡献 reuse |
+| C-measure | `data/minif2f_c_measure.jsonl` | 61 | probation 中性曝光、constants 计数、晋升 | 需求挖掘和候选来源 |
+| D | `data/minif2f_dev.jsonl` | 61 | 调参、装置检查、忠实度审计 | 入库、需求、候选来源 |
+| T | `data/minif2f_test.jsonl` | 244 | 框架冻结后的最终一次评测 | 调参、建库、提前看结果 |
 
-## 二、C 内部必须再拆分
+三个 valid 分区必须完整覆盖 244 题且题目身份两两不相交。T 保留 miniF2F
+原始 test 分割，不参与任何再划分。`data/dataset_manifest.json` 记录算法、种子、
+计数、来源哈希、分区哈希和零重叠检查。
 
-C 用稳定哈希和固定种子确定性划分：
-
-- **C-build**：基线求解、轨迹、需求挖掘、候选生成和候选证明；
-- **C-measure**：给 probation 引理提供跨目标曝光，统计 reuse；
-- 可选 **C-audit**：逐引理 with/without 忠实度审计，不参与晋升。
-
-候选的 `source_target` 永远不能为自己的 `reuse` 贡献计数，即使它也出现在 C-measure。
-划分清单是派生数据，不入库；manifest 必须记录算法、种子、规模和内容指纹。
-
-## 三、reuse 数据口径
+## 二、reuse 口径
 
 ```text
-reuse(l) = 引用 l 的不同目标数
+reuse(l) = 在 C-measure 上实际引用 l 的不同目标数
 ```
 
 一次引用只有同时满足以下条件才有效：
 
-1. 目标不是该引理的 `source_target`；
-2. 证明通过 Lean 内核终检；
-3. 引用来自 Lean 证明项的 `constants`；
-4. 同一目标无论有多少篇证明或引用多少次，都只计 1；
-5. 该引理确实在本次目标的中性测量提示词中获得过曝光。
+1. 目标属于 C-measure；
+2. 目标不是该引理的 `source_target`；
+3. 证明通过 Lean 内核终检；
+4. 引用来自 Lean 证明项的 `constants`；
+5. 该引理对该目标确有中性提示词曝光；
+6. 同一目标多篇证明或多次引用只计 1。
 
-证明文本包含 `sgs_lem`、失败证明使用了库名、模型声称使用了某引理，都不算 reuse。
+证明文本出现库名、失败证明引用、D/T 上的引用都不得计入 reuse。
 
-## 四、标准实验流程
+## 三、标准流程
 
 ```text
-1. 只在 C-build 生成并证明候选，进入 probation
-2. 在 C-measure 上做中性、带盐、公平曝光
-3. 用通过证明的 constants 统计 reuse，晋升 active
-4. 物化 active，编译并发布不可变 LibrarySnapshot
-5. 在 D 上选择 k、预算、阈值、难度层和统计方案
-6. 冻结代码、配置、快照、脚本和报告 schema
-7. 在 T 上运行一次 A/B/C，写入一次性台账
-8. 在 C-audit 或 D 上做逐引理 with/without 忠实度审计，不回写库
+1. 只在 C-build 上生成和证明候选，进入 probation
+2. 在 C-measure 上做带盐、中性、逐目标可审计的曝光
+3. 按 constants 与逐目标曝光证据计 reuse，晋升 active
+4. 物化、编译并发布冻结 LibrarySnapshot
+5. 在 D 上选择 k、预算、阈值和统计方案，不回写库
+6. 冻结代码、数据 manifest、配置、库快照和报表 schema
+7. 在 T 上只运行一次正式 A/B/C
 ```
 
-正式方法比较的主指标是首轮、模型生成、无 cheap、无 repair 的严格 pass@k。
-cheap 和 repair 只能作为产品增强另报。
+正式方法比较的主指标仍是首轮、模型生成、无 cheap、无 repair 的严格 pass@k。
 
-## 五、三组对照
+## 四、来源与入库字段
 
-- A：真实需求 + SGS Guide 选择；
-- B：真实需求 + reuse/cost 选择；
-- C：随机等量伪需求 + reuse/cost 选择。
+C-build/C-measure 行标记 `source_corpus=MF_VALID_C`；D 标记
+`source_corpus=MF_VALID_D`。引理库只允许 `MF_VALID_C`。原始未分区
+`minif2f_valid.jsonl`、D 分区和 T 都不能直接作为 Runner 的建库输入。
 
-A/B 必须共用同一候选池，仅改变选择判据；B/C 保持选择、预算和执行配置不变，
-仅改变需求信号。三组必须使用相同模型、温度、k、token 上限、硬门和验证器。
+## 五、历史数据的定位
 
-## 六、历史结果的定位
-
-| 资产 | 当前定位 |
-|---|---|
-| miniF2F valid 上的所有实验 | D 上的开发结果，不是最终结论 |
-| `experiments/library.jsonl` 35 条 | 开发期迁移资产；全部 reuse=0，需重建 |
-| `g3_c_device_n12_k2.json` 的 14/24 | 文本命中且包含失败证明，不是正式 reuse |
-| `p1_dev_k4_n20.json` | 9 题部分开发报告 |
-| miniF2F test | 当前没有正式运行台账；保持未运行 |
-
-## 七、T 的一次性守卫
-
-只有以下各项都冻结后才能运行 T：代码提交、模型与采样配置、C 划分、三组库快照、
-在线检索、验证器、随机种子、报告 schema 和统计方案。结果无论好坏都如实报告。
-若运行后发现装置错误，该次结果标为无效并公开原因；不得把“修好再看一次”包装成首次评测。
+- 旧 C1/C2/Mathlib 课程集已从当前 `data/` 删除，仅在 Git 历史和阶段日志中保留。
+- 旧 `C_build.jsonl` 和基于它的难度结论不再属于当前数据协议。
+- `experiments/library.jsonl` 仍是开发期迁移资产，正式 miniF2F 库必须重建。

@@ -21,8 +21,8 @@
 
 | `--set` | 文件 | 允许用途 |
 |---|---|---|
-| `C` | 由 `--path` 给出（自建课程集） | 建库 |
-| `D` | `data/minif2f_valid.jsonl` | 调参（可反复跑） |
+| `C` | 由 `--path` 给出（miniF2F valid 的 C 分区） | 建库 |
+| `D` | `data/minif2f_dev.jsonl` | 调参（可反复跑） |
 | `T` | `data/minif2f_test.jsonl` | **只跑一次**，框架冻结后 |
 
 `T` 会打一条显眼的警告并要求显式 `--i-know-test-is-one-shot`：
@@ -61,9 +61,10 @@ from sgsr.pipeline.library import (  # noqa: E402
 
 DATA = ROOT / "data"
 REGISTERED = {
-    "D": DATA / "minif2f_valid.jsonl",
+    "D": DATA / "minif2f_dev.jsonl",
     "T": DATA / "minif2f_test.jsonl",
-    "C1": DATA / "lemmas_g1.jsonl",
+    "C-build": DATA / "minif2f_c_build.jsonl",
+    "C-measure": DATA / "minif2f_c_measure.jsonl",
 }
 #: T 的一次性运行台账：跑过 T 就写一条记录，再跑会被拒绝。
 #: 审计指出"只靠一个命令行开关"不足以守住"T 只跑一次"这条协议——
@@ -180,8 +181,8 @@ def write_tiers(rows: list[dict], records: list[dict], tier_dir: Path,
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="批量评测证明器")
     p.add_argument("--set", dest="dataset", required=True,
-                   help="数据集：已注册名（D/T/C1）或 `--path` 给出的文件")
-    p.add_argument("--path", default=None, help="数据集文件（`--set C` 时用它给课程集）")
+                   help="数据集：已注册名（C-build/C-measure/D/T）或文件路径")
+    p.add_argument("--path", default=None, help="显式覆盖数据集文件")
     p.add_argument("--k", type=int, default=4, help="采样篇数")
     p.add_argument("--limit", type=int, default=0, help="只跑前 N 条（0 表示全部）")
     p.add_argument("--ids", default=None, help="只跑这些 id（逗号分隔），用于复现单题")

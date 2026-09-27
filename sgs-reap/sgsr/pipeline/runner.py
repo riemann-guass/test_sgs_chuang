@@ -105,6 +105,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: 把文件复制成别的名字就能绕过（审计 P0 第 5 条）。
 FORBIDDEN_ROLE_PATHS = (
     REPO_ROOT / "data" / "minif2f_valid.jsonl",
+    REPO_ROOT / "data" / "minif2f_dev.jsonl",
     REPO_ROOT / "data" / "minif2f_test.jsonl",
 )
 
@@ -161,7 +162,7 @@ class TargetSet:
         if self.role not in {ROLE_CURRICULUM, ROLE_C_BUILD, ROLE_C_MEASURE}:
             raise DataRoleError(
                 f"{self.path.name} 的角色是 {self.role}；"
-                "按 docs/data-protocol.md，只有 curriculum 可以进库/挖需求"
+                "按 docs/data-protocol.md，只有 C-build/C-measure 可进入建库流程"
             )
         resolved = self.path.resolve()
         for forbidden in FORBIDDEN_ROLE_PATHS:
@@ -214,6 +215,16 @@ def assert_disjoint_curriculum(c_build: TargetSet, c_measure: TargetSet) -> None
         raise DataRoleError("Runner 需要独立的 c-build 与 c-measure 输入")
     c_build.assert_buildable()
     c_measure.assert_buildable()
+    mislabeled = [
+        str(row.get("id") or "?")
+        for target_set, expected in ((c_build, "C-build"), (c_measure, "C-measure"))
+        for row in target_set.rows
+        if row.get("partition") is not None and row.get("partition") != expected
+    ]
+    if mislabeled:
+        raise DataRoleError(
+            f"C-build/C-measure 文件角色与行内 partition 不一致（例：{mislabeled[:3]}）"
+        )
     id_overlap = c_build.identities() & c_measure.identities()
     stmt_overlap = c_build.statement_fingerprints() & c_measure.statement_fingerprints()
     if id_overlap or stmt_overlap:
@@ -284,7 +295,7 @@ class RoundConfig:
     #: 提示词里最多放几条引理（与 `proxy.handle_solve` 的截断上限保持一致）
     prompt_slots: int = 16
     #: 本库的来源语料标识（写进每条引理的 `source_corpus`，供事后审计）
-    source_corpus: str = "C1"
+    source_corpus: str = "MF_VALID_C"
     target_limit: int = 0             # 本轮用多少条 C-build 目标（0 = 全部）
     measure_target_limit: int = 0     # 本轮用多少条 C-measure 目标（0 = 全部）
     min_proof_steps: int = 2          # 软分：证明过短（≤ 该步数）的引理记 warning

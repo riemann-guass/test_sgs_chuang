@@ -5,8 +5,8 @@
 
 | 文件 | 用途 | 结论/产物落在 |
 |---|---|---|
-| `minif2f_to_jsonl.py` | 把 miniF2F 的 Lean4 移植版转成统一的 `jsonl`（465/488 条过门检） | `data/minif2f_{valid,test}.jsonl` |
-| `prepare_domain_corpus.py` | 生成 C、去重、检查与 D/T 同源，并写 manifest | `data/C.jsonl`、`data/corpus_manifest.json` |
+| `minif2f_to_jsonl.py` | 把 miniF2F 的 Lean4 移植版转成统一的 `jsonl`（valid/test 各 244 题） | `data/minif2f_{valid,test}.jsonl` |
+| `prepare_domain_corpus.py` | 将 miniF2F valid 确定性拆成 C-build/C-measure/D，并检查与 T 隔离 | 三个分区文件、`data/dataset_manifest.json` |
 | `check_backend.py` | 后端连通性自检（不需要起代理） | 直接输出 |
 
-下一阶段将在现有语料工具内加入稳定的 C-build/C-measure 派生与题面形态筛选，不新开入口。
+`prepare_domain_corpus.py` 是当前唯一的数据分区入口；它只做本地确定性整理，不调用模型、Lean 或 Mathlib。

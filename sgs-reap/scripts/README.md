@@ -14,7 +14,7 @@
 | `run_prover_eval.py` | 批量评测：严格 pass@k、产品增强口径、成本与难度分档；带环境预检与 T 一次性守卫 |
 | `run_round.py` | 离线建库入口。迁移目标是 C-build 生成、C-measure 试用、三态库与冻结快照 |
 | `run_gate_g3_real.py` | 有库／无库配对测量。当前引用统计仍是旧文本口径，修复前只作开发诊断 |
-| `run_closure_tests.py` | **唯一测试入口**（当前 72 条纯 Python 断言，另有常驻会话与物化往返） |
+| `run_closure_tests.py` | **唯一测试入口**（当前 95 条纯 Python 断言，另有常驻会话与物化往返） |
 
 ## 常用命令
 
@@ -74,9 +74,8 @@ $env:PYTHONPATH = "D:\bianma\code\大创\sgs-reap"   # 直接跑脚本时 sgsr �
 * 正式方法主指标是首轮模型生成、无 cheap、无 repair 的严格 pass@k；增强口径另报。
 * 在线、离线与配对实验最终必须共用一个生成/检索/验证执行引擎，不允许脚本各自解释引用。
 * Lean 侧测试在 `sgslean/SgsLean/Test/` 与 `reap-fork/Reap/Test/`，用 `lake build` 跑。
-* **语料准备在 `tools/prepare_domain_corpus.py`**：C1+C2 合成 `data/C.jsonl`、与 D/T 做
-  命题级同源检查、写 `data/corpus_manifest.json`。分档清单是派生文件
-  （`data/C__{easy,nearmiss,hard}.jsonl`），由 `run_prover_eval --tier-out` 重建，**不入库**。
+* **数据准备在 `tools/prepare_domain_corpus.py`**：miniF2F valid 确定性切成
+  C-build=122、C-measure=61、D=61，写 `data/dataset_manifest.json`；miniF2F test 保持为 T。
 
 ## 公共入口与迁移目标
 

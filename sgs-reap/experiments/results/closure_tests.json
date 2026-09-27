@@ -1,5 +1,5 @@
 {
-  "passed": 95,
+  "passed": 100,
   "failed": [],
   "checks": [
     {
@@ -80,17 +80,17 @@
     {
       "name": "库守卫：4 条被拒且给出原因",
       "ok": true,
-      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
+      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=MF_VALID_D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
     },
     {
       "name": "库守卫：D 来源被明确拒收",
       "ok": true,
-      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
+      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=MF_VALID_D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
     },
     {
       "name": "库守卫：缺 source_target 被拒",
       "ok": true,
-      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
+      "detail": "[{'stmt': 'P2', 'reason': 'source_corpus=MF_VALID_D 属于 D/T，禁止进库'}, {'stmt': 'P3', 'reason': '缺 source_corpus'}, {'stmt': 'P4', 'reason': '缺 source_target'}, {'stmt': 'P5', 'reason': 'verified 不为 true'}]"
     },
     {
       "name": "库守卫：读取侧复核能抓出手工写入的 D 来源",
@@ -114,6 +114,31 @@
     },
     {
       "name": "角色守卫：role=dev 被拒",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "miniF2F 划分：固定规模为 C-build=122/C-measure=61/D=61",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "miniF2F 划分：三个 valid 分区目标身份两两不相交",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "miniF2F 划分：三个分区完整覆盖 valid",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "miniF2F 划分：只有 C 分区标记为允许入库的 MF_VALID_C",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "miniF2F 划分：反向对照——C-build/C-measure 文件互换必须拒绝",
       "ok": true,
       "detail": ""
     },
@@ -270,22 +295,22 @@
     {
       "name": "复用测量：按不同目标去重（t1 两篇只算 1）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t1', 't3'}}"
+      "detail": "{'sgs_lem_a': {'t3', 't1'}}"
     },
     {
       "name": "复用测量：失败证明里的引用不算复用（t2 不在集合里）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t1', 't3'}}"
+      "detail": "{'sgs_lem_a': {'t3', 't1'}}"
     },
     {
       "name": "复用测量：点号全名按叶子名计数（SgsLean.sgs_lem_a 也算）",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t1', 't3'}}"
+      "detail": "{'sgs_lem_a': {'t3', 't1'}}"
     },
     {
       "name": "复用测量：反向对照——未对该目标曝光的引理不计 reuse",
       "ok": true,
-      "detail": "{'sgs_lem_a': {'t1', 't3'}}"
+      "detail": "{'sgs_lem_a': {'t3', 't1'}}"
     },
     {
       "name": "复用落盘：reuse 与 reuse_targets 写进库文件（淘汰/检索都靠它）",
