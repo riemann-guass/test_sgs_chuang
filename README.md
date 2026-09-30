@@ -1,4 +1,4 @@
-# LeanReuse
+# LeanReuse（基于SGS的复用引理库解题方法）
 
 LeanReuse 是一个轻量的 Lean 4 自动证明项目。输入一条完整的 Lean 命题，系统生成候选
 证明，并且只返回通过 Lean 内核检查的证明。
