@@ -24,6 +24,9 @@ LeanReuse 把语言模型当作候选生成器，把 Lean 内核当作最终裁�
 
 项目不训练或微调模型，不需要 GPU。模型参数始终冻结，离线积累只通过引理库进入在线系统。
 
+当前工程基线为 **v1.0.0**。后续修改不会覆盖这个版本，可按
+[版本管理说明](docs/versioning.md)随时查看、比较或恢复。
+
 ## 四份数据各做什么
 
 miniF2F 是当前唯一题目来源。valid 的 244 题按固定规则拆成三份，test 的 244 题保留为
@@ -111,6 +114,8 @@ sgs-reap/
 
 - [设计说明](docs/architecture.md)
 - [当前状态与后续工作](docs/project-status.md)
+- [版本管理与安全还原](docs/versioning.md)
+- [版本更新记录](CHANGELOG.md)
 - [数据划分规则](sgs-reap/docs/data-protocol.md)
 - [模型服务接口](sgs-reap/docs/api-contract.md)
 - [工程注意事项](sgs-reap/docs/pitfalls.md)

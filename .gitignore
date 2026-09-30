@@ -43,7 +43,10 @@ models/
 # 密钥仍由上面的 `.env` 规则挡住。
 !sgs-reap/sgsr/models/
 *.pdf
-!docs/*.pdf
+*.aux
+*.out
+*.toc
+*.synctex.gz
 *.zip
 *.tar
 *.tar.gz
